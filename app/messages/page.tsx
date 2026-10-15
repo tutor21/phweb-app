@@ -1,11 +1,20 @@
 
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
+
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+
 import { createClient } from '@/app/utils/supabase/client';
 import AppShell from '@/app/components/AppShell';
 import AdSenseInFeed from '@/app/components/AdSenseInFeed';
+
 import {
   MessageCircle,
   Plus,
@@ -13,6 +22,8 @@ import {
   User,
   RefreshCw,
   X,
+  LogIn,
+  UserPlus,
 } from 'lucide-react';
 
 type Profile = {
@@ -52,8 +63,16 @@ export default function MessagesPage() {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
 
-  const [userId, setUserId] = useState<string | null>(null);
-  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [userId, setUserId] = useState<string | null>(
+    null
+  );
+
+  const [isGuest, setIsGuest] = useState(false);
+
+  const [conversations, setConversations] = useState<
+    Conversation[]
+  >([]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -61,35 +80,68 @@ export default function MessagesPage() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Profile[]>([]);
   const [searching, setSearching] = useState(false);
-  const [starting, setStarting] = useState<string | null>(null);
+  const [starting, setStarting] = useState<string | null>(
+    null
+  );
 
   const loadInbox = useCallback(async () => {
     setLoading(true);
     setError('');
 
     try {
-      const { data: auth, error: authError } =
-        await supabase.auth.getUser();
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
 
-      if (authError) throw authError;
-
-      if (!auth.user) {
-        router.replace('/login');
+      // A missing session is normal for logged-out visitors.
+      // Show the guest screen instead of an error.
+      if (!session) {
+        setUserId(null);
+        setIsGuest(true);
+        setConversations([]);
+        setModal(false);
         return;
       }
 
-      const me = auth.user.id;
-      setUserId(me);
+      if (sessionError) {
+        throw sessionError;
+      }
 
-      const { data: myRows, error: myError } = await supabase
-        .from('conversation_members')
-        .select('conversation_id')
-        .eq('user_id', me);
+      // Verify the signed-in user.
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        setUserId(null);
+        setIsGuest(true);
+        setConversations([]);
+        setModal(false);
+        return;
+      }
+
+      if (authError) {
+        throw authError;
+      }
+
+      const me = user.id;
+
+      setUserId(me);
+      setIsGuest(false);
+
+      const { data: myRows, error: myError } =
+        await supabase
+          .from('conversation_members')
+          .select('conversation_id')
+          .eq('user_id', me);
 
       if (myError) throw myError;
 
       const ids = (myRows ?? []).map(
-        (row: { conversation_id: string }) => row.conversation_id
+        (row: { conversation_id: string }) =>
+          row.conversation_id
       );
 
       if (ids.length === 0) {
@@ -97,32 +149,42 @@ export default function MessagesPage() {
         return;
       }
 
-      const [convResult, memberResult, latestResult] =
-        await Promise.all([
-          supabase
-            .from('conversations')
-            .select('id, updated_at')
-            .in('id', ids)
-            .order('updated_at', { ascending: false }),
+      const [
+        convResult,
+        memberResult,
+        latestResult,
+      ] = await Promise.all([
+        supabase
+          .from('conversations')
+          .select('id, updated_at')
+          .in('id', ids)
+          .order('updated_at', {
+            ascending: false,
+          }),
 
-          supabase
-            .from('conversation_members')
-            .select('conversation_id, user_id')
-            .in('conversation_id', ids),
+        supabase
+          .from('conversation_members')
+          .select('conversation_id, user_id')
+          .in('conversation_id', ids),
 
-          supabase
-            .from('messages')
-            .select('conversation_id, text, created_at')
-            .in('conversation_id', ids)
-            .order('created_at', { ascending: false })
-            .limit(500),
-        ]);
+        supabase
+          .from('messages')
+          .select(
+            'conversation_id, text, created_at'
+          )
+          .in('conversation_id', ids)
+          .order('created_at', {
+            ascending: false,
+          })
+          .limit(500),
+      ]);
 
       if (convResult.error) throw convResult.error;
       if (memberResult.error) throw memberResult.error;
       if (latestResult.error) throw latestResult.error;
 
-      const members = (memberResult.data ?? []) as Member[];
+      const members = (memberResult.data ??
+        []) as Member[];
 
       const otherIds = [
         ...new Set(
@@ -134,15 +196,18 @@ export default function MessagesPage() {
 
       let profiles: Profile[] = [];
 
-      if (otherIds.length) {
+      if (otherIds.length > 0) {
         const profileResult = await supabase
           .from('profiles')
           .select('id, username, name, avatar')
           .in('id', otherIds);
 
-        if (profileResult.error) throw profileResult.error;
+        if (profileResult.error) {
+          throw profileResult.error;
+        }
 
-        profiles = (profileResult.data ?? []) as Profile[];
+        profiles = (profileResult.data ??
+          []) as Profile[];
       }
 
       const profileMap = new Map(
@@ -153,42 +218,95 @@ export default function MessagesPage() {
 
       for (const msg of latestResult.data ?? []) {
         if (!previews.has(msg.conversation_id)) {
-          previews.set(msg.conversation_id, msg.text);
+          previews.set(
+            msg.conversation_id,
+            msg.text ?? ''
+          );
         }
       }
 
-      setConversations(
-        (convResult.data ?? []).map((c) => {
-          const otherId = members.find(
-            (m) =>
-              m.conversation_id === c.id &&
-              m.user_id !== me
-          )?.user_id;
+      const updatedConversations: Conversation[] = (
+        convResult.data ?? []
+      ).map((c) => {
+        const otherId = members.find(
+          (m) =>
+            m.conversation_id === c.id &&
+            m.user_id !== me
+        )?.user_id;
 
-          return {
-            id: c.id,
-            updated_at: c.updated_at,
-            other: otherId
-              ? profileMap.get(otherId) ?? null
-              : null,
-            preview: previews.get(c.id) ?? null,
-          };
-        })
-      );
+        return {
+          id: c.id,
+          updated_at: c.updated_at,
+          other: otherId
+            ? profileMap.get(otherId) ?? null
+            : null,
+          preview: previews.get(c.id) ?? null,
+        };
+      });
+
+      setConversations(updatedConversations);
     } catch (err) {
-      console.error('INBOX_ERROR', err);
-      setError(errorText(err));
+      const message = errorText(err);
+
+      // Don't expose missing-session errors to guests.
+      if (
+        message.toLowerCase().includes(
+          'auth session missing'
+        ) ||
+        message.toLowerCase().includes(
+          'session_not_found'
+        )
+      ) {
+        setUserId(null);
+        setIsGuest(true);
+        setConversations([]);
+        setModal(false);
+      } else {
+        console.error('INBOX_ERROR', err);
+        setError(message);
+      }
     } finally {
       setLoading(false);
     }
-  }, [router, supabase]);
+  }, [supabase]);
 
   useEffect(() => {
     void loadInbox();
   }, [loadInbox]);
 
+  // Keep the page updated when users sign in or out.
   useEffect(() => {
-    if (!modal || !userId || !query.trim()) {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(
+      (event) => {
+        if (event === 'SIGNED_OUT') {
+          setUserId(null);
+          setIsGuest(true);
+          setConversations([]);
+          setModal(false);
+          setError('');
+          setLoading(false);
+        }
+
+        if (event === 'SIGNED_IN') {
+          void loadInbox();
+        }
+      }
+    );
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [supabase, loadInbox]);
+
+  // Search registered users when starting a new chat.
+  useEffect(() => {
+    if (
+      !modal ||
+      !userId ||
+      !query.trim()
+    ) {
       setResults([]);
       setSearching(false);
       return;
@@ -206,7 +324,10 @@ export default function MessagesPage() {
         .from('profiles')
         .select('id, username, name, avatar')
         .neq('id', userId)
-        .ilike('username', `%${query.trim()}%`)
+        .ilike(
+          'username',
+          `%${query.trim()}%`
+        )
         .limit(12);
 
       if (!cancelled) {
@@ -226,22 +347,29 @@ export default function MessagesPage() {
     };
   }, [modal, query, supabase, userId]);
 
-  const startConversation = async (otherId: string) => {
-    if (starting) return;
+  const startConversation = async (
+    otherId: string
+  ) => {
+    if (starting || !userId) return;
 
     setStarting(otherId);
     setError('');
 
     try {
-      const { data, error: rpcError } = await supabase.rpc(
-        'start_direct_conversation',
-        { p_other_user_id: otherId }
-      );
+      const { data, error: rpcError } =
+        await supabase.rpc(
+          'start_direct_conversation',
+          {
+            p_other_user_id: otherId,
+          }
+        );
 
       if (rpcError) throw rpcError;
 
       if (typeof data !== 'string') {
-        throw new Error('Conversation ID was not returned.');
+        throw new Error(
+          'Conversation ID was not returned.'
+        );
       }
 
       router.push(`/messages/${data}`);
@@ -256,119 +384,188 @@ export default function MessagesPage() {
   return (
     <AppShell>
       <main className="mx-auto max-w-3xl px-4 py-6 text-neutral-900 dark:text-neutral-100">
-        <div className="mb-6 flex items-center justify-between gap-3">
-          <h1 className="text-2xl font-bold">
-            Messages
-          </h1>
+        {/* GUEST VIEW */}
+        {!loading && isGuest ? (
+          <section className="flex min-h-[65vh] flex-col items-center justify-center px-4 text-center">
+            <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-blue-50 dark:bg-blue-950/30">
+              <MessageCircle
+                size={40}
+                className="text-blue-600"
+              />
+            </div>
 
-          <button
-            type="button"
-            onClick={() => setModal(true)}
-            className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-          >
-            <Plus size={18} />
-            New chat
-          </button>
-        </div>
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+              Connect with people on Socials
+            </h1>
 
-        {error && (
-          <div
-            role="alert"
-            className="mb-4 rounded-xl border border-red-300 p-3 text-sm text-red-600"
-          >
-            {error}
-          </div>
-        )}
-
-        {loading ? (
-          <div className="flex items-center gap-2 py-16 text-neutral-500">
-            <RefreshCw
-              className="animate-spin"
-              size={18}
-            />
-            Loading inbox...
-          </div>
-        ) : (
-          <div className="overflow-hidden rounded-2xl border border-neutral-200 dark:border-neutral-800">
-            {conversations.length === 0 ? (
-              <div className="px-6 py-16 text-center text-neutral-500">
-                <MessageCircle
-                  className="mx-auto mb-3"
-                  size={36}
-                />
-                <p>
-                  No conversations yet. Start a new chat.
-                </p>
-              </div>
-            ) : (
-              conversations.map((conv) => (
-                <button
-                  type="button"
-                  key={conv.id}
-                  onClick={() =>
-                    router.push(`/messages/${conv.id}`)
-                  }
-                  className="flex w-full items-center gap-3 border-b border-neutral-200 p-4 text-left last:border-b-0 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"
-                >
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
-                    {conv.other?.avatar ? (
-                      <img
-                        src={conv.other.avatar}
-                        alt=""
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <User size={22} />
-                    )}
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold">
-                      @{conv.other?.username ?? 'user'}
-                    </p>
-
-                    <p className="truncate text-sm text-neutral-500">
-                      {conv.preview ??
-                        'Start the conversation'}
-                    </p>
-                  </div>
-
-                  <span className="shrink-0 text-xs text-neutral-400">
-                    {new Date(
-                      conv.updated_at
-                    ).toLocaleDateString()}
-                  </span>
-                </button>
-              ))
-            )}
-          </div>
-        )}
-
-        <button
-          type="button"
-          onClick={() => void loadInbox()}
-          className="mt-4 flex items-center gap-2 text-sm text-blue-600"
-        >
-          <RefreshCw size={15} />
-          Refresh inbox
-        </button>
-
-        {/* GOOGLE ADSENSE - BELOW THE MESSAGES SECTION */}
-        {!loading && userId && (
-          <section
-            aria-label="Advertisement"
-            className="mt-8 w-full border-t border-neutral-200 pt-6 dark:border-neutral-800"
-          >
-            <p className="mb-3 text-center text-xs uppercase tracking-wider text-neutral-400">
-              Advertisement
+            <p className="mt-4 max-w-md text-sm leading-7 text-neutral-500 sm:text-base">
+              Log in or create a free account to
+              send private messages, start
+              conversations, and connect with
+              other members of Socials.
             </p>
 
-            <AdSenseInFeed />
+            <div className="mt-8 flex w-full max-w-sm flex-col gap-3 sm:flex-row">
+              <Link
+                href="/login"
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3 font-semibold text-white transition hover:bg-blue-700"
+              >
+                <LogIn size={18} />
+                Log In
+              </Link>
+
+              <Link
+                href="/register"
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-neutral-300 px-6 py-3 font-semibold transition hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-900"
+              >
+                <UserPlus size={18} />
+                Sign Up
+              </Link>
+            </div>
+
+            <Link
+              href="/"
+              className="mt-6 text-sm font-medium text-neutral-500 hover:text-blue-600"
+            >
+              Continue browsing Socials
+            </Link>
           </section>
+        ) : (
+          <>
+            {/* HEADER */}
+            <div className="mb-6 flex items-center justify-between gap-3">
+              <h1 className="text-2xl font-bold">
+                Messages
+              </h1>
+
+              {userId && (
+                <button
+                  type="button"
+                  onClick={() => setModal(true)}
+                  className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                >
+                  <Plus size={18} />
+                  New chat
+                </button>
+              )}
+            </div>
+
+            {/* ERRORS */}
+            {error && (
+              <div
+                role="alert"
+                className="mb-4 rounded-xl border border-red-300 p-3 text-sm text-red-600"
+              >
+                {error}
+              </div>
+            )}
+
+            {/* INBOX */}
+            {loading ? (
+              <div className="flex items-center gap-2 py-16 text-neutral-500">
+                <RefreshCw
+                  className="animate-spin"
+                  size={18}
+                />
+                Loading inbox...
+              </div>
+            ) : (
+              <div className="overflow-hidden rounded-2xl border border-neutral-200 dark:border-neutral-800">
+                {conversations.length === 0 ? (
+                  <div className="px-6 py-16 text-center text-neutral-500">
+                    <MessageCircle
+                      className="mx-auto mb-3"
+                      size={36}
+                    />
+
+                    <p>
+                      No conversations yet. Start a
+                      new chat.
+                    </p>
+                  </div>
+                ) : (
+                  conversations.map((conv) => (
+                    <button
+                      type="button"
+                      key={conv.id}
+                      onClick={() =>
+                        router.push(
+                          `/messages/${conv.id}`
+                        )
+                      }
+                      className="flex w-full items-center gap-3 border-b border-neutral-200 p-4 text-left last:border-b-0 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"
+                    >
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
+                        {conv.other?.avatar ? (
+                          <img
+                            src={
+                              conv.other.avatar
+                            }
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <User size={22} />
+                        )}
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-semibold">
+                          @
+                          {conv.other
+                            ?.username ?? 'user'}
+                        </p>
+
+                        <p className="truncate text-sm text-neutral-500">
+                          {conv.preview ??
+                            'Start the conversation'}
+                        </p>
+                      </div>
+
+                      <span className="shrink-0 text-xs text-neutral-400">
+                        {new Date(
+                          conv.updated_at
+                        ).toLocaleDateString()}
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+
+            {/* REFRESH */}
+            {!loading && userId && (
+              <button
+                type="button"
+                onClick={() =>
+                  void loadInbox()
+                }
+                className="mt-4 flex items-center gap-2 text-sm text-blue-600"
+              >
+                <RefreshCw size={15} />
+                Refresh inbox
+              </button>
+            )}
+
+            {/* GOOGLE ADSENSE */}
+            {!loading && userId && (
+              <section
+                aria-label="Advertisement"
+                className="mt-8 w-full border-t border-neutral-200 pt-6 dark:border-neutral-800"
+              >
+                <p className="mb-3 text-center text-xs uppercase tracking-wider text-neutral-400">
+                  Advertisement
+                </p>
+
+                <AdSenseInFeed />
+              </section>
+            )}
+          </>
         )}
       </main>
 
-      {modal && (
+      {/* NEW CHAT MODAL */}
+      {modal && userId && !isGuest && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
           onMouseDown={(e) => {
