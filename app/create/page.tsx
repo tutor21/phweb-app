@@ -1,68 +1,52 @@
 
 'use client';
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/app/utils/supabase/client';
 import AppShell from '@/app/components/AppShell';
 
 import {
-  Image as ImageIcon,
-  Upload,
   AlertCircle,
   Check,
+  Image as ImageIcon,
   Loader2,
-  X,
+  ShieldCheck,
   Type,
+  Upload,
+  X,
 } from 'lucide-react';
 
 const MAX_CAPTION_LENGTH = 500;
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
-const ALLOWED_IMAGE_TYPES = [
+const ALLOWED_TYPES = [
   'image/jpeg',
   'image/png',
   'image/webp',
-  'image/gif',
-  'image/avif',
 ];
-
-function getErrorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-
-  if (error && typeof error === 'object') {
-    const details = error as {
-      message?: string;
-      error_description?: string;
-      code?: string;
-    };
-
-    if (details.message) {
-      return details.code
-        ? `${details.code}: ${details.message}`
-        : details.message;
-    }
-
-    if (details.error_description) {
-      return details.error_description;
-    }
-  }
-
-  return 'Failed to publish your post. Please try again.';
-}
 
 export default function CreatePostPage() {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const submittingRef = useRef(false);
 
   const [caption, setCaption] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imagePreview, setImagePreview] =
+    useState<string | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [statusMessage, setStatusMessage] = useState('');
 
   const hasText = caption.trim().length > 0;
   const hasImage = imageFile !== null;
@@ -72,7 +56,6 @@ export default function CreatePostPage() {
     caption.length <= MAX_CAPTION_LENGTH &&
     !loading;
 
-  // Generate and clean up temporary image previews.
   useEffect(() => {
     if (!imageFile) {
       setImagePreview(null);
@@ -87,190 +70,174 @@ export default function CreatePostPage() {
     };
   }, [imageFile]);
 
-  // Validate the selected image.
-  const handleFileChange = (
+  function handleFileChange(
     event: React.ChangeEvent<HTMLInputElement>
-  ) => {
+  ) {
     const file = event.target.files?.[0];
-
     if (!file) return;
 
     setErrorMessage('');
+    setStatusMessage('');
 
-    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+    if (!ALLOWED_TYPES.includes(file.type)) {
       setErrorMessage(
-        'Invalid file format. Only JPEG, PNG, WebP, GIF, and AVIF images are accepted.'
+        'Only JPEG, PNG and WebP images are supported.'
       );
       event.target.value = '';
       return;
     }
 
-    if (file.size > MAX_FILE_SIZE) {
+    if (file.size === 0 || file.size > MAX_FILE_SIZE) {
       setErrorMessage(
-        'File size exceeds the 5 MB limit. Please choose a smaller image.'
+        'Please choose an image smaller than 5 MB.'
       );
       event.target.value = '';
       return;
     }
 
     setImageFile(file);
-  };
+  }
 
-  // Remove the selected image.
-  const removeImage = () => {
+  function removeImage() {
     setImageFile(null);
     setErrorMessage('');
+    setStatusMessage('');
 
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
-  };
+  }
 
-  // Publish the post.
-  const handleSubmit = async (event: React.FormEvent) => {
+  async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
 
     if (submittingRef.current) return;
 
-    setErrorMessage('');
-
     const trimmedCaption = caption.trim();
 
-    // Allow text-only, photo-only, or text-and-photo posts.
     if (!trimmedCaption && !imageFile) {
-      setErrorMessage(
-        'Please write something or upload an image before publishing.'
-      );
+      setErrorMessage('Add text or a photo before publishing.');
       return;
     }
 
-    if (caption.length > MAX_CAPTION_LENGTH) {
-      setErrorMessage(
-        `Post text cannot exceed ${MAX_CAPTION_LENGTH} characters.`
-      );
+    if (trimmedCaption.length > MAX_CAPTION_LENGTH) {
+      setErrorMessage('Caption exceeds 500 characters.');
       return;
     }
 
     submittingRef.current = true;
     setLoading(true);
+    setErrorMessage('');
+    setStatusMessage(
+      imageFile
+        ? 'Scanning your photo before publication...'
+        : 'Publishing your post...'
+    );
 
     try {
-      // Verify that the user is logged in.
       const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser();
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
 
-      if (authError) throw authError;
-
-      if (!user) {
+      if (sessionError || !session) {
         router.replace('/login');
         return;
       }
 
-      let imageUrl: string | null = null;
-      let uploadedFilePath: string | null = null;
+      const formData = new FormData();
+      formData.append('caption', trimmedCaption);
 
-      // Upload the image only if one is selected.
       if (imageFile) {
-        const extension =
-          imageFile.name.split('.').pop()?.toLowerCase() || 'jpg';
-
-        const fileName = `${user.id}-${crypto.randomUUID()}.${extension}`;
-        const filePath = `posts/${fileName}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from('posts')
-          .upload(filePath, imageFile, {
-            upsert: false,
-            contentType: imageFile.type,
-          });
-
-        if (uploadError) throw uploadError;
-
-        uploadedFilePath = filePath;
-
-        const {
-          data: { publicUrl },
-        } = supabase.storage
-          .from('posts')
-          .getPublicUrl(filePath);
-
-        imageUrl = publicUrl;
+        formData.append('image', imageFile);
       }
 
-      // Save the post in Supabase.
-      const { error: insertError } = await supabase
-        .from('posts')
-        .insert({
-          user_id: user.id,
-          caption: trimmedCaption,
-          image: imageUrl,
-        });
+      const response = await fetch('/api/posts', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: formData,
+      });
 
-      if (insertError) {
-        // Remove the uploaded image if saving the post fails.
-        if (uploadedFilePath) {
-          const { error: cleanupError } = await supabase.storage
-            .from('posts')
-            .remove([uploadedFilePath]);
+      const result = await response.json();
 
-          if (cleanupError) {
-            console.warn(
-              'Unable to clean up uploaded image:',
-              cleanupError.message
-            );
-          }
-        }
-
-        throw insertError;
+      if (!response.ok) {
+        throw new Error(
+          result.error || 'Unable to publish your post.'
+        );
       }
 
-      // Publishing succeeded.
-      // Navigate to the main Socials feed.
+      setStatusMessage('Post published successfully!');
       router.replace('/');
       router.refresh();
-    } catch (error: unknown) {
-      console.error('Error creating post:', error);
-      setErrorMessage(getErrorMessage(error));
+    } catch (error) {
+      setStatusMessage('');
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : 'Failed to publish your post.'
+      );
     } finally {
       submittingRef.current = false;
       setLoading(false);
     }
-  };
+  }
 
   return (
     <AppShell>
       <main className="mx-auto max-w-xl space-y-6 px-4 py-8">
-        {/* PAGE HEADER */}
         <div>
           <h1 className="mb-1 text-2xl font-bold tracking-tight">
             Create New Post
           </h1>
-
           <p className="text-sm text-neutral-500">
-            Share your thoughts, photos, or both with the Socials
-            community.
+            Share your thoughts, photos, or both with
+            the Socials community.
           </p>
         </div>
 
-        {/* ERROR MESSAGE */}
+        <div className="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
+          <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
+          <div>
+            <p className="font-semibold">
+              Socials Photo Safety
+            </p>
+            <p className="mt-1 leading-6">
+              Photos are automatically checked before publication.
+              Nudity, pornography and sexually explicit images
+              are prohibited. Images that need additional review
+              will not be published automatically.
+            </p>
+          </div>
+        </div>
+
         {errorMessage && (
           <div
             role="alert"
-            className="flex items-start gap-2 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-600 dark:bg-red-950/20"
+            className="flex items-start gap-2 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-700 dark:bg-red-950/20 dark:text-red-400"
           >
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>{errorMessage}</span>
           </div>
         )}
 
-        {/* CREATE POST FORM */}
+        {statusMessage && (
+          <div
+            role="status"
+            className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-700 dark:bg-blue-950/20 dark:text-blue-300"
+          >
+            {loading && (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            )}
+            {statusMessage}
+          </div>
+        )}
+
         <form
           onSubmit={handleSubmit}
           className="space-y-6 rounded-2xl border border-neutral-200 bg-white p-6 dark:border-neutral-800 dark:bg-black"
         >
-          {/* TEXT INPUT */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <label
@@ -281,13 +248,7 @@ export default function CreatePostPage() {
                 Your Post
               </label>
 
-              <span
-                className={`text-xs ${
-                  caption.length > MAX_CAPTION_LENGTH
-                    ? 'font-bold text-red-500'
-                    : 'text-neutral-400'
-                }`}
-              >
+              <span className="text-xs text-neutral-400">
                 {caption.length} / {MAX_CAPTION_LENGTH}
               </span>
             </div>
@@ -295,7 +256,9 @@ export default function CreatePostPage() {
             <textarea
               id="post-caption"
               value={caption}
-              onChange={(event) => setCaption(event.target.value)}
+              onChange={(event) =>
+                setCaption(event.target.value)
+              }
               rows={6}
               maxLength={MAX_CAPTION_LENGTH}
               placeholder="What's on your mind?"
@@ -308,12 +271,10 @@ export default function CreatePostPage() {
             </p>
           </div>
 
-          {/* IMAGE ATTACHMENT */}
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <ImageIcon className="h-4 w-4 text-blue-600" />
               Photo
-
               <span className="text-xs font-normal text-neutral-400">
                 (Optional)
               </span>
@@ -321,16 +282,18 @@ export default function CreatePostPage() {
 
             <input
               ref={fileInputRef}
+              id="post-image"
               type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
+              accept="image/jpeg,image/png,image/webp"
               onChange={handleFileChange}
               disabled={loading}
               className="hidden"
-              id="post-image"
             />
 
             {imagePreview ? (
               <div className="relative flex aspect-square max-h-[450px] items-center justify-center overflow-hidden rounded-xl border border-neutral-200 bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900">
+                {/* Local blob preview */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={imagePreview}
                   alt="Selected photo preview"
@@ -342,7 +305,7 @@ export default function CreatePostPage() {
                   onClick={removeImage}
                   disabled={loading}
                   aria-label="Remove selected image"
-                  className="absolute right-3 top-3 rounded-full bg-black/70 p-2 text-white transition hover:bg-black disabled:opacity-50"
+                  className="absolute right-3 top-3 rounded-full bg-black/70 p-2 text-white hover:bg-black disabled:opacity-50"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -357,24 +320,20 @@ export default function CreatePostPage() {
                 }`}
               >
                 <Upload className="mb-3 h-10 w-10 text-neutral-400" />
-
                 <span className="text-sm font-semibold">
                   Add a photo
                 </span>
-
                 <span className="mt-1 px-3 text-center text-xs text-neutral-400">
-                  JPEG, PNG, WebP, GIF, AVIF (Max 5 MB)
+                  JPEG, PNG or WebP (Max 5 MB)
                 </span>
               </label>
             )}
           </div>
 
-          {/* POST TYPE */}
           <div className="rounded-xl bg-neutral-50 px-4 py-3 text-sm dark:bg-neutral-900">
             <span className="text-neutral-500">
               Post type:{' '}
             </span>
-
             <span className="font-semibold">
               {hasText && hasImage
                 ? 'Text and Photo'
@@ -386,7 +345,6 @@ export default function CreatePostPage() {
             </span>
           </div>
 
-          {/* PUBLISH BUTTON */}
           <button
             type="submit"
             disabled={!canPublish}
@@ -395,7 +353,9 @@ export default function CreatePostPage() {
             {loading ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Publishing...
+                {imageFile
+                  ? 'Checking and publishing...'
+                  : 'Publishing...'}
               </>
             ) : (
               <>
