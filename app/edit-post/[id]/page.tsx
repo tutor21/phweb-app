@@ -1,22 +1,21 @@
 
-import { Suspense } from 'react';
 import EditPostClient from './EditPostClient';
 
-function EditPostLoading() {
-  return (
-    <main className="mx-auto max-w-xl px-4 py-8">
-      <div className="flex items-center gap-3 text-sm text-neutral-500">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-neutral-300 border-t-blue-600" />
-        <span>Loading post editor...</span>
-      </div>
-    </main>
-  );
+// Next.js 16 Cache Components:
+// Render this dynamic route on request instead of
+// requiring it to be fully prerendered at build time.
+export const instant = false;
+
+interface EditPostPageProps {
+  params: Promise<{
+    id: string;
+  }>;
 }
 
-export default function EditPostPage() {
-  return (
-    <Suspense fallback={<EditPostLoading />}>
-      <EditPostClient />
-    </Suspense>
-  );
+export default async function EditPostPage({
+  params,
+}: EditPostPageProps) {
+  const { id } = await params;
+
+  return <EditPostClient postId={id} />;
 }
