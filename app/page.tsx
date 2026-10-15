@@ -104,10 +104,7 @@ export default function HomePage() {
           .maybeSingle();
 
         if (profileError) {
-          console.warn(
-            'PROFILE_LOAD_ERROR',
-            profileError
-          );
+          console.warn('PROFILE_LOAD_ERROR', profileError);
         }
 
         setProfile(
@@ -117,7 +114,7 @@ export default function HomePage() {
         setProfile(null);
       }
 
-      // Load latest posts with author profiles
+      // Load posts and author profiles
       const { data, error } = await supabase
         .from('posts')
         .select(
@@ -131,7 +128,7 @@ export default function HomePage() {
         throw error;
       }
 
-      // Normalize nullable usernames to match PostCard
+      // Normalize usernames for PostCard compatibility
       const normalizedPosts: Post[] = (data ?? []).map(
         (post) => ({
           id: post.id,
@@ -163,7 +160,7 @@ export default function HomePage() {
     void fetchFeed();
   }, [fetchFeed]);
 
-  // Remove a deleted post from the feed immediately
+  // Remove deleted posts immediately
   const handlePostDeleted = useCallback(
     (postId: string) => {
       setPosts((previous) =>
@@ -178,15 +175,9 @@ export default function HomePage() {
       <main className="mx-auto max-w-2xl px-4 py-6 text-neutral-900 dark:text-neutral-100">
         {/* Homepage Header */}
         <div className="mb-6 flex items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">
-              Home
-            </h1>
-
-            <p className="mt-1 text-sm text-neutral-500">
-              Discover what's happening on PHWeb.
-            </p>
-          </div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            Home
+          </h1>
 
           <button
             type="button"
@@ -197,14 +188,12 @@ export default function HomePage() {
           >
             <RefreshCw
               size={19}
-              className={
-                loading ? 'animate-spin' : ''
-              }
+              className={loading ? 'animate-spin' : ''}
             />
           </button>
         </div>
 
-        {/* Create Post Composer - Logged-in Users */}
+        {/* Create Post - Logged-in Users Only */}
         {user && (
           <HomePostComposer
             username={profile?.username}
@@ -222,7 +211,7 @@ export default function HomePage() {
               />
 
               <h2 className="text-lg font-bold">
-                Welcome to PHWeb
+                Welcome to Socials
               </h2>
             </div>
 

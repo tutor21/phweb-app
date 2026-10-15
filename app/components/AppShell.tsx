@@ -5,6 +5,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { createClient } from '@/app/utils/supabase/client';
+
 import {
   Home,
   Search,
@@ -28,6 +29,7 @@ export default function AppShell({ children }: AppShellProps) {
   const [user, setUser] = useState<any>(null);
   const [isSuperadmin, setIsSuperadmin] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+
   const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
@@ -86,9 +88,11 @@ export default function AppShell({ children }: AppShellProps) {
       { href: '/messages', label: 'Messages', icon: MessageCircle },
       { href: '/notifications', label: 'Notifications', icon: Heart },
       { href: '/create', label: 'Create', icon: PlusSquare },
+
       ...(user
         ? [{ href: '/profile', label: 'Profile', icon: User }]
         : []),
+
       ...(user
         ? [{ href: '/settings', label: 'Settings', icon: Settings }]
         : []),
@@ -126,6 +130,7 @@ export default function AppShell({ children }: AppShellProps) {
   const moreItems = useMemo(() => {
     const items = [
       { href: '/notifications', label: 'Notifications', icon: Heart },
+
       ...(user
         ? [{ href: '/settings', label: 'Settings', icon: Settings }]
         : []),
@@ -144,19 +149,27 @@ export default function AppShell({ children }: AppShellProps) {
 
   const isActiveRoute = (href: string) => {
     if (href === '/') return pathname === '/';
-    return pathname === href || pathname.startsWith(`${href}/`);
+
+    return (
+      pathname === href ||
+      pathname.startsWith(`${href}/`)
+    );
   };
 
   return (
     <div className="flex min-h-screen bg-white text-neutral-900 dark:bg-black dark:text-neutral-100">
       {/* Desktop Sidebar */}
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 select-none flex-col border-r border-neutral-200 p-6 dark:border-neutral-800 md:flex">
-        <Link href="/" className="mb-8 flex items-center gap-3">
+        <Link
+          href="/"
+          className="mb-8 flex items-center gap-3"
+        >
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-lg font-bold text-white">
-            P
+            S
           </div>
+
           <span className="text-xl font-bold tracking-tight">
-            phweb.app
+            Socials
           </span>
         </Link>
 
@@ -194,12 +207,16 @@ export default function AppShell({ children }: AppShellProps) {
 
       {/* Mobile Top Bar */}
       <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-neutral-200 bg-white px-4 dark:border-neutral-800 dark:bg-black md:hidden">
-        <Link href="/" className="flex items-center gap-2">
+        <Link
+          href="/"
+          className="flex items-center gap-2"
+        >
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 font-bold text-white">
-            P
+            S
           </div>
+
           <span className="font-bold tracking-tight">
-            phweb.app
+            Socials
           </span>
         </Link>
 
@@ -210,7 +227,11 @@ export default function AppShell({ children }: AppShellProps) {
           onClick={() => setMoreOpen((value) => !value)}
           className="rounded-lg p-2 text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-900"
         >
-          {moreOpen ? <X size={23} /> : <Menu size={23} />}
+          {moreOpen ? (
+            <X size={23} />
+          ) : (
+            <Menu size={23} />
+          )}
         </button>
       </header>
 
@@ -227,7 +248,9 @@ export default function AppShell({ children }: AppShellProps) {
                   key={item.href}
                   href={item.href}
                   onClick={() => setMoreOpen(false)}
-                  aria-current={isActive ? 'page' : undefined}
+                  aria-current={
+                    isActive ? 'page' : undefined
+                  }
                   className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium ${
                     isActive
                       ? 'bg-blue-50 text-blue-600 dark:bg-blue-950'
@@ -257,7 +280,9 @@ export default function AppShell({ children }: AppShellProps) {
               key={item.href}
               href={item.href}
               aria-label={item.label}
-              aria-current={isActive ? 'page' : undefined}
+              aria-current={
+                isActive ? 'page' : undefined
+              }
               className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-lg px-1 py-2 transition-colors ${
                 isActive
                   ? 'text-blue-600'
@@ -268,6 +293,7 @@ export default function AppShell({ children }: AppShellProps) {
                 className="h-5 w-5"
                 strokeWidth={isActive ? 2.5 : 2}
               />
+
               <span className="text-[10px] font-medium">
                 {item.label}
               </span>
