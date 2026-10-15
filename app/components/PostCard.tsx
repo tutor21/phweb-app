@@ -1,15 +1,11 @@
-
 'use client';
-
 import React, {
   useEffect,
   useMemo,
   useState,
 } from 'react';
-
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-
 import {
   Heart,
   MessageCircle,
@@ -20,16 +16,13 @@ import {
   Trash2,
   Loader2,
 } from 'lucide-react';
-
 import { createClient } from '@/app/utils/supabase/client';
 import ReportModal from '@/app/components/ReportModal';
-
 interface Profile {
   id: string;
   username: string;
   avatar: string | null;
 }
-
 interface Comment {
   id: string;
   text: string;
@@ -39,7 +32,6 @@ interface Comment {
     avatar: string | null;
   } | null;
 }
-
 interface PostCardProps {
   post: {
     id: string;
@@ -52,10 +44,8 @@ interface PostCardProps {
   currentUserId: string;
   onDeleted?: (postId: string) => void;
 }
-
 const DEFAULT_AVATAR =
   'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150';
-
 export default function PostCard({
   post,
   currentUserId,
@@ -63,41 +53,31 @@ export default function PostCard({
 }: PostCardProps) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
-
   const [likes, setLikes] = useState(0);
   const [isLiked, setIsLiked] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
-
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [showComments, setShowComments] = useState(false);
-
   const [showReportModal, setShowReportModal] = useState(false);
   const [checkingReportAuth, setCheckingReportAuth] = useState(false);
-
   const [showManageMenu, setShowManageMenu] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
-
   const [actionError, setActionError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTogglingLike, setIsTogglingLike] = useState(false);
   const [isTogglingSave, setIsTogglingSave] = useState(false);
-
   const authorId = post.profiles?.id || post.user_id;
-
   const isOwner =
     !!currentUserId && post.user_id === currentUserId;
-
   const authorUrl =
     authorId === currentUserId
       ? '/profile'
       : `/profile/${authorId}`;
-
   // LOAD LIKES, SAVED POSTS, AND COMMENTS
   useEffect(() => {
     let active = true;
-
     async function fetchPostInteractions() {
       const [
         likesResult,
@@ -112,7 +92,6 @@ export default function PostCard({
             head: true,
           })
           .eq('post_id', post.id),
-
         currentUserId
           ? supabase
               .from('likes')
@@ -121,7 +100,6 @@ export default function PostCard({
               .eq('user_id', currentUserId)
               .maybeSingle()
           : Promise.resolve({ data: null }),
-
         currentUserId
           ? supabase
               .from('saved_posts')
@@ -130,7 +108,6 @@ export default function PostCard({
               .eq('user_id', currentUserId)
               .maybeSingle()
           : Promise.resolve({ data: null }),
-
         supabase
           .from('comments')
           .select('*, profiles(username, avatar)')
@@ -139,43 +116,32 @@ export default function PostCard({
             ascending: true,
           }),
       ]);
-
       if (!active) return;
-
       if (!likesResult.error) {
         setLikes(likesResult.count || 0);
       }
-
       setIsLiked(!!likeResult.data);
       setIsSaved(!!saveResult.data);
-
       if (!commentsResult.error) {
         setComments(
           (commentsResult.data || []) as Comment[]
         );
       }
     }
-
     void fetchPostInteractions();
-
     return () => {
       active = false;
     };
   }, [post.id, currentUserId, supabase]);
-
   // LIKE OR UNLIKE POST
   async function toggleLike() {
     if (!currentUserId || isTogglingLike) return;
-
     setIsTogglingLike(true);
-
     const previous = isLiked;
-
     setIsLiked(!previous);
     setLikes((count) =>
       Math.max(0, count + (previous ? -1 : 1))
     );
-
     try {
       const { error } = previous
         ? await supabase
@@ -189,30 +155,23 @@ export default function PostCard({
               post_id: post.id,
               user_id: currentUserId,
             });
-
       if (error) throw error;
     } catch (error) {
       setIsLiked(previous);
-
       setLikes((count) =>
         Math.max(0, count + (previous ? 1 : -1))
       );
-
       console.error('Error updating like:', error);
     } finally {
       setIsTogglingLike(false);
     }
   }
-
   // SAVE OR UNSAVE POST
   async function toggleSave() {
     if (!currentUserId || isTogglingSave) return;
-
     setIsTogglingSave(true);
-
     const previous = isSaved;
     setIsSaved(!previous);
-
     try {
       const { error } = previous
         ? await supabase
@@ -226,7 +185,6 @@ export default function PostCard({
               post_id: post.id,
               user_id: currentUserId,
             });
-
       if (error) throw error;
     } catch (error) {
       setIsSaved(previous);
@@ -235,13 +193,10 @@ export default function PostCard({
       setIsTogglingSave(false);
     }
   }
-
   // ADD COMMENT
   async function addComment(event: React.FormEvent) {
     event.preventDefault();
-
     const text = newComment.trim();
-
     if (
       !text ||
       !currentUserId ||
@@ -249,9 +204,7 @@ export default function PostCard({
     ) {
       return;
     }
-
     setIsSubmitting(true);
-
     try {
       const { data, error } = await supabase
         .from('comments')
@@ -262,14 +215,11 @@ export default function PostCard({
         })
         .select('*, profiles(username, avatar)')
         .single();
-
       if (error) throw error;
-
       setComments((previous) => [
         ...previous,
         data as Comment,
       ]);
-
       setNewComment('');
       setShowComments(true);
     } catch (error) {
@@ -278,34 +228,27 @@ export default function PostCard({
       setIsSubmitting(false);
     }
   }
-
   // REPORT POST - AUTHENTICATED USERS ONLY
   async function handleReportClick() {
     if (checkingReportAuth || isOwner) return;
-
     if (!currentUserId) {
       router.push('/login');
       return;
     }
-
     setCheckingReportAuth(true);
     setActionError('');
-
     try {
       const {
         data: { user },
         error,
       } = await supabase.auth.getUser();
-
       if (error || !user || user.id !== currentUserId) {
         router.push('/login');
         return;
       }
-
       if (user.id === post.user_id) {
         return;
       }
-
       setShowReportModal(true);
     } catch (error) {
       console.error('Report authentication error:', error);
@@ -316,7 +259,6 @@ export default function PostCard({
       setCheckingReportAuth(false);
     }
   }
-
   // DELETE POST - OWNER ONLY
   async function deletePost() {
     if (!isOwner || deleting) return;
@@ -326,32 +268,43 @@ export default function PostCard({
 
     try {
       const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser();
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
 
-      if (
-        authError ||
-        user?.id !== post.user_id
-      ) {
-        throw new Error(
-          'You must be the post owner to delete it.'
-        );
+      if (sessionError || !session?.access_token) {
+        throw new Error('Your session has expired. Please sign in again.');
       }
 
-      const { data, error } = await supabase
-        .from('posts')
-        .delete()
-        .eq('id', post.id)
-        .eq('user_id', user.id)
-        .select('id');
+      if (session.user.id !== post.user_id) {
+        throw new Error('You must be the post owner to delete it.');
+      }
 
-      if (error) throw error;
+      const response = await fetch(
+        `/api/posts/${encodeURIComponent(post.id)}`,
+        {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          cache: 'no-store',
+        }
+      );
 
-      if (!data?.length) {
-        throw new Error(
-          'Post was not deleted. Check your Supabase delete policy.'
-        );
+      const result = (await response.json()) as {
+        success?: boolean;
+        cleanupComplete?: boolean;
+        error?: string;
+        message?: string;
+      };
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Unable to delete post.');
+      }
+
+      if (result.cleanupComplete === false) {
+        console.warn('Post deleted but image cleanup was incomplete:', post.id);
+        setActionError('Post deleted, but photo cleanup needs attention.');
       }
 
       setConfirmDelete(false);
@@ -364,9 +317,7 @@ export default function PostCard({
       }
     } catch (error) {
       setActionError(
-        error instanceof Error
-          ? error.message
-          : 'Unable to delete post.'
+        error instanceof Error ? error.message : 'Unable to delete post.'
       );
     } finally {
       setDeleting(false);
@@ -398,12 +349,10 @@ export default function PostCard({
               className="h-full w-full object-cover"
             />
           </div>
-
           <div>
             <p className="text-sm font-semibold group-hover:underline">
               @{post.profiles?.username || 'user'}
             </p>
-
             <p className="text-xs text-neutral-400">
               {new Date(
                 post.created_at
@@ -411,7 +360,6 @@ export default function PostCard({
             </p>
           </div>
         </button>
-
         {/* OWNER MENU */}
         {isOwner ? (
           <div className="relative">
@@ -426,7 +374,6 @@ export default function PostCard({
             >
               <MoreHorizontal className="h-5 w-5" />
             </button>
-
             {showManageMenu && (
               <div className="absolute right-0 top-full z-20 w-44 rounded-xl border border-neutral-200 bg-white p-1 shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
                 <Link
@@ -439,7 +386,6 @@ export default function PostCard({
                   <Pencil className="h-4 w-4" />
                   Edit post
                 </Link>
-
                 <button
                   type="button"
                   onClick={() => {
@@ -482,7 +428,6 @@ export default function PostCard({
           </button>
         )}
       </div>
-
       {/* POST CAPTION */}
       {!!post.caption?.trim() && (
         <p
@@ -495,7 +440,6 @@ export default function PostCard({
           {post.caption}
         </p>
       )}
-
       {/* POST IMAGE */}
       {!!post.image?.trim() && (
         <div className="flex w-full items-center justify-center overflow-hidden bg-neutral-100 dark:bg-neutral-900">
@@ -507,7 +451,6 @@ export default function PostCard({
           />
         </div>
       )}
-
       {/* LIKE, COMMENT, BOOKMARK BUTTONS */}
       <div className="flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-4">
@@ -534,7 +477,6 @@ export default function PostCard({
               }`}
             />
           </button>
-
           <button
             type="button"
             onClick={() =>
@@ -545,7 +487,6 @@ export default function PostCard({
             <MessageCircle className="h-6 w-6" />
           </button>
         </div>
-
         <button
           type="button"
           onClick={() => void toggleSave()}
@@ -570,7 +511,6 @@ export default function PostCard({
           />
         </button>
       </div>
-
       {/* LIKE COUNT AND COMMENTS */}
       <div className="space-y-2 px-4 pb-4">
         <p className="text-sm font-semibold">
@@ -579,7 +519,6 @@ export default function PostCard({
             ? 'like'
             : 'likes'}
         </p>
-
         {comments.length > 0 && (
           <button
             type="button"
@@ -593,7 +532,6 @@ export default function PostCard({
               : `View all ${comments.length} comments`}
           </button>
         )}
-
         {showComments && (
           <div className="space-y-2 pt-2">
             {comments.map((comment) => (
@@ -606,7 +544,6 @@ export default function PostCard({
                   {comment.profiles?.username ||
                     'user'}
                 </span>
-
                 <span className="whitespace-pre-wrap break-words text-neutral-700 dark:text-neutral-300">
                   {comment.text}
                 </span>
@@ -614,7 +551,6 @@ export default function PostCard({
             ))}
           </div>
         )}
-
         {/* ADD COMMENT */}
         <form
           onSubmit={addComment}
@@ -638,7 +574,6 @@ export default function PostCard({
             maxLength={1000}
             className="min-w-0 flex-1 bg-transparent py-1 text-sm outline-none disabled:opacity-50"
           />
-
           <button
             type="submit"
             disabled={
@@ -654,7 +589,6 @@ export default function PostCard({
           </button>
         </form>
       </div>
-
       {/* ACTION ERROR */}
       {actionError && (
         <p
@@ -664,7 +598,6 @@ export default function PostCard({
           {actionError}
         </p>
       )}
-
       {/* DELETE CONFIRMATION */}
       {confirmDelete && (
         <div
@@ -680,12 +613,10 @@ export default function PostCard({
             >
               Delete this post?
             </h2>
-
             <p className="text-sm text-neutral-500">
               This action cannot be undone.
               Your post will be removed.
             </p>
-
             {actionError && (
               <p
                 role="alert"
@@ -694,7 +625,6 @@ export default function PostCard({
                 {actionError}
               </p>
             )}
-
             <div className="flex justify-end gap-3">
               <button
                 type="button"
@@ -706,7 +636,6 @@ export default function PostCard({
               >
                 Cancel
               </button>
-
               <button
                 type="button"
                 onClick={() =>
@@ -724,7 +653,6 @@ export default function PostCard({
           </div>
         </div>
       )}
-
       {/* REPORT MODAL - AUTHENTICATED USERS ONLY */}
       {showReportModal &&
         currentUserId &&
