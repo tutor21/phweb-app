@@ -8,12 +8,12 @@ import React, {
   useCallback,
 } from 'react';
 
+import Link from 'next/link';
 import { createClient } from '@/app/utils/supabase/client';
 import AppShell from '@/app/components/AppShell';
 import PostCard from '@/app/components/PostCard';
 import AdSenseInFeed from '@/app/components/AdSenseInFeed';
-
-import Link from 'next/link';
+import HomePostComposer from '@/app/components/HomePostComposer';
 
 import {
   Compass,
@@ -23,58 +23,137 @@ import {
   RefreshCw,
 } from 'lucide-react';
 
+interface Profile {
+  id: string;
+  username: string;
+  avatar: string | null;
+}
+
+interface HomeProfile {
+  id: string;
+  username: string | null;
+  avatar: string | null;
+}
+
+interface Post {
+  id: string;
+  user_id: string;
+  caption: string | null;
+  image: string | null;
+  created_at: string;
+  profiles: Profile | null;
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (
+    error &&
+    typeof error === 'object' &&
+    'message' in error
+  ) {
+    return String(error.message);
+  }
+
+  return 'Unable to load posts. Please try again.';
+}
+
 export default function HomePage() {
-  const [user, setUser] = useState<any>(null);
-  const [posts, setPosts] = useState<any[]>([]);
+  const supabase = useMemo(() => createClient(), []);
+
+  const [user, setUser] = useState<{
+    id: string;
+  } | null>(null);
+
+  const [profile, setProfile] = useState<HomeProfile | null>(
+    null
+  );
+
+  const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
-
-  const supabase = useMemo(() => createClient(), []);
 
   const fetchFeed = useCallback(async () => {
     setLoading(true);
     setErrorMessage('');
 
     try {
+      // Check authentication
       const {
         data: { user: authUser },
+        error: authError,
       } = await supabase.auth.getUser();
 
-      setUser(authUser);
+      if (authError) {
+        console.warn('AUTH_ERROR', authError);
+      }
 
-      // Explicit foreign key relationship prevents PGRST201 ambiguity.
+      setUser(authUser ? { id: authUser.id } : null);
+
+      // Load logged-in user's profile
+      if (authUser) {
+        const {
+          data: profileData,
+          error: profileError,
+        } = await supabase
+          .from('profiles')
+          .select('id, username, avatar')
+          .eq('id', authUser.id)
+          .maybeSingle();
+
+        if (profileError) {
+          console.warn(
+            'PROFILE_LOAD_ERROR',
+            profileError
+          );
+        }
+
+        setProfile(
+          (profileData as HomeProfile | null) ?? null
+        );
+      } else {
+        setProfile(null);
+      }
+
+      // Load latest posts with author profiles
       const { data, error } = await supabase
         .from('posts')
         .select(
           '*, profiles!posts_user_id_fkey(id, username, avatar)'
         )
-        .order('created_at', { ascending: false });
+        .order('created_at', {
+          ascending: false,
+        });
 
       if (error) {
         throw error;
       }
 
-      setPosts(data || []);
-    } catch (err: any) {
-      console.error('Error fetching feed:', err);
+      // Normalize nullable usernames to match PostCard
+      const normalizedPosts: Post[] = (data ?? []).map(
+        (post) => ({
+          id: post.id,
+          user_id: post.user_id,
+          caption: post.caption ?? null,
+          image: post.image ?? null,
+          created_at: post.created_at,
+          profiles: post.profiles
+            ? {
+                id: post.profiles.id,
+                username:
+                  post.profiles.username ?? 'user',
+                avatar: post.profiles.avatar ?? null,
+              }
+            : null,
+        })
+      );
 
-      let msg = 'Failed to load feed posts.';
-
-      if (err instanceof Error) {
-        msg = err.message;
-      } else if (typeof err === 'object' && err !== null) {
-        msg =
-          err.message ||
-          err.error_description ||
-          JSON.stringify(err);
-      }
-
-      if (msg.includes('PGRST201') || msg === '{}') {
-        msg =
-          'Supabase relationship error (PGRST201). Please apply the updated query with explicit foreign key hints.';
-      }
-
-      setErrorMessage(msg);
+      setPosts(normalizedPosts);
+    } catch (error: unknown) {
+      console.error('FEED_ERROR', error);
+      setErrorMessage(getErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -84,127 +163,201 @@ export default function HomePage() {
     void fetchFeed();
   }, [fetchFeed]);
 
+  // Remove a deleted post from the feed immediately
+  const handlePostDeleted = useCallback(
+    (postId: string) => {
+      setPosts((previous) =>
+        previous.filter((post) => post.id !== postId)
+      );
+    },
+    []
+  );
+
   return (
     <AppShell>
-      <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+      <main className="mx-auto max-w-2xl px-4 py-6 text-neutral-900 dark:text-neutral-100">
+        {/* Homepage Header */}
+        <div className="mb-6 flex items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">
+              Home
+            </h1>
 
-        {/* WELCOME BANNER FOR VISITORS */}
-        {!user && (
-          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-3xl p-6 text-white shadow-lg space-y-4">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-6 h-6 text-yellow-300" />
+            <p className="mt-1 text-sm text-neutral-500">
+              Discover what's happening on PHWeb.
+            </p>
+          </div>
 
-              <h2 className="text-xl font-bold">
-                Welcome to phweb.app
+          <button
+            type="button"
+            onClick={() => void fetchFeed()}
+            disabled={loading}
+            aria-label="Refresh feed"
+            className="rounded-xl border border-neutral-200 p-2.5 text-neutral-600 transition-colors hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-900"
+          >
+            <RefreshCw
+              size={19}
+              className={
+                loading ? 'animate-spin' : ''
+              }
+            />
+          </button>
+        </div>
+
+        {/* Create Post Composer - Logged-in Users */}
+        {user && (
+          <HomePostComposer
+            username={profile?.username}
+            avatar={profile?.avatar}
+          />
+        )}
+
+        {/* Welcome Banner - Guests Only */}
+        {!user && !loading && (
+          <section className="mb-6 rounded-2xl border border-blue-100 bg-blue-50 p-5 dark:border-blue-950 dark:bg-blue-950/30">
+            <div className="mb-3 flex items-center gap-2">
+              <Sparkles
+                size={22}
+                className="text-blue-600"
+              />
+
+              <h2 className="text-lg font-bold">
+                Welcome to PHWeb
               </h2>
             </div>
 
-            <p className="text-sm text-blue-100 max-w-lg">
-              Share your moments, discover stunning minimalist
-              photography, and connect with creators worldwide.
+            <p className="mb-4 text-sm leading-relaxed text-neutral-600 dark:text-neutral-300">
+              Discover posts, connect with people, and
+              share what's on your mind. Join our growing
+              community to start posting and chatting.
             </p>
 
-            <div className="flex items-center gap-3 pt-2">
+            <div className="flex flex-wrap gap-3">
               <Link
                 href="/login"
-                className="flex items-center gap-2 px-5 py-2.5 bg-white text-blue-600 hover:bg-blue-50 rounded-xl text-sm font-semibold transition shadow-sm"
+                className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
               >
-                <LogIn className="w-4 h-4" />
-                Sign In
+                <LogIn size={17} />
+                Log In
               </Link>
 
               <Link
-                href="/signup"
-                className="flex items-center gap-2 px-5 py-2.5 bg-blue-700 hover:bg-blue-800 text-white border border-blue-500 rounded-xl text-sm font-semibold transition"
+                href="/register"
+                className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-white px-4 py-2.5 text-sm font-semibold text-blue-600 hover:bg-blue-50 dark:border-blue-900 dark:bg-neutral-900"
               >
-                <UserPlus className="w-4 h-4" />
-                Create Account
+                <UserPlus size={17} />
+                Sign Up
               </Link>
             </div>
-          </div>
+          </section>
         )}
 
-        {/* ERROR MESSAGE */}
+        {/* Feed Heading */}
+        <div className="mb-4 flex items-center gap-2">
+          <Compass
+            size={20}
+            className="text-blue-600"
+          />
+
+          <h2 className="text-lg font-bold">
+            Latest Posts
+          </h2>
+        </div>
+
+        {/* Error Message */}
         {errorMessage && (
           <div
             role="alert"
-            className="p-4 rounded-xl border border-red-300 bg-red-50 dark:bg-red-950/20 text-red-600 text-sm space-y-2"
+            className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400"
           >
-            <p>{errorMessage}</p>
+            <p className="font-semibold">
+              Unable to load the feed
+            </p>
+
+            <p className="mt-1">
+              {errorMessage}
+            </p>
 
             <button
               type="button"
               onClick={() => void fetchFeed()}
-              className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-semibold hover:bg-red-700 transition"
+              className="mt-3 font-semibold text-blue-600 hover:underline"
             >
-              Try Again
+              Try again
             </button>
           </div>
         )}
 
-        {/* LOADING */}
-        {loading ? (
-          <div className="min-h-[50vh] flex items-center justify-center">
-            <div className="flex items-center gap-3 text-neutral-500">
-              <RefreshCw className="w-5 h-5 animate-spin" />
-              <span>Loading feed...</span>
-            </div>
-          </div>
-        ) : posts.length === 0 ? (
+        {/* Loading State */}
+        {loading && (
+          <div className="flex items-center justify-center gap-3 py-20 text-neutral-500">
+            <RefreshCw
+              size={22}
+              className="animate-spin"
+            />
 
-          /* EMPTY FEED */
-          <div className="text-center py-16 border border-neutral-200 dark:border-neutral-800 rounded-2xl bg-white dark:bg-black p-8 space-y-3">
-            <Compass className="w-12 h-12 text-neutral-400 mx-auto" />
-
-            <h3 className="font-bold text-lg">
-              No posts yet
-            </h3>
-
-            <p className="text-sm text-neutral-500 max-w-sm mx-auto">
-              Be the first to share a moment on phweb.app!
-            </p>
-
-            {user ? (
-              <Link
-                href="/create"
-                className="inline-block px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition"
-              >
-                Create Post
-              </Link>
-            ) : (
-              <Link
-                href="/login"
-                className="inline-block px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold transition"
-              >
-                Sign in to Post
-              </Link>
-            )}
-          </div>
-        ) : (
-
-          /* FEED WITH ADSENSE EVERY 5 POSTS */
-          <div className="space-y-6">
-            {posts.map((post, index) => (
-              <React.Fragment key={post.id}>
-
-                {/* EXISTING POST CARD */}
-                <PostCard
-                  post={post}
-                  currentUserId={user?.id || ''}
-                />
-
-                {/* GOOGLE ADSENSE AFTER EVERY 5 POSTS */}
-                {(index + 1) % 5 === 0 && (
-                  <AdSenseInFeed
-                    key={`adsense-${post.id}`}
-                  />
-                )}
-
-              </React.Fragment>
-            ))}
+            <span>Loading posts...</span>
           </div>
         )}
-      </div>
+
+        {/* Empty Feed */}
+        {!loading &&
+          !errorMessage &&
+          posts.length === 0 && (
+            <div className="rounded-2xl border border-neutral-200 p-10 text-center dark:border-neutral-800">
+              <Compass
+                size={40}
+                className="mx-auto mb-4 text-neutral-400"
+              />
+
+              <h3 className="text-lg font-semibold">
+                No posts yet
+              </h3>
+
+              <p className="mt-2 text-sm text-neutral-500">
+                Be the first to share something with
+                the community.
+              </p>
+
+              {user && (
+                <Link
+                  href="/create"
+                  className="mt-5 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+                >
+                  Create a Post
+                </Link>
+              )}
+            </div>
+          )}
+
+        {/* Posts Feed and AdSense */}
+        {!loading &&
+          !errorMessage &&
+          posts.length > 0 && (
+            <div className="space-y-5">
+              {posts.map((post, index) => (
+                <React.Fragment key={post.id}>
+                  <PostCard
+                    post={post}
+                    currentUserId={user?.id ?? ''}
+                    onDeleted={handlePostDeleted}
+                  />
+
+                  {/* Advertisement after every 5 posts */}
+                  {(index + 1) % 5 === 0 && (
+                    <div className="py-3">
+                      <p className="mb-2 text-center text-xs uppercase tracking-wide text-neutral-400">
+                        Advertisement
+                      </p>
+
+                      <AdSenseInFeed />
+                    </div>
+                  )}
+                </React.Fragment>
+              ))}
+            </div>
+          )}
+      </main>
     </AppShell>
   );
 }
