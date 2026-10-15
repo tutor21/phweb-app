@@ -1,10 +1,17 @@
 
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
+
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { createClient } from '@/app/utils/supabase/client';
+
+import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 import {
   Home,
@@ -15,22 +22,34 @@ import {
   User,
   Settings,
   ShieldAlert,
-  Menu,
-  X,
+  MoreHorizontal,
   LogIn,
+  X,
 } from 'lucide-react';
 
 interface AppShellProps {
   children: React.ReactNode;
 }
 
-export default function AppShell({ children }: AppShellProps) {
+interface NavigationItem {
+  href: string;
+  label: string;
+  icon: React.ElementType;
+}
+
+export default function AppShell({
+  children,
+}: AppShellProps) {
   const pathname = usePathname();
-  const [user, setUser] = useState<any>(null);
-  const [isSuperadmin, setIsSuperadmin] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
 
   const supabase = useMemo(() => createClient(), []);
+
+  const [user, setUser] = useState<SupabaseUser | null>(
+    null
+  );
+
+  const [isSuperadmin, setIsSuperadmin] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -81,22 +100,49 @@ export default function AppShell({ children }: AppShellProps) {
     setMoreOpen(false);
   }, [pathname]);
 
-  const navItems = useMemo(() => {
-    const items = [
-      { href: '/', label: 'Home', icon: Home },
-      { href: '/search', label: 'Search', icon: Search },
-      { href: '/messages', label: 'Messages', icon: MessageCircle },
-      { href: '/notifications', label: 'Notifications', icon: Heart },
-      { href: '/create', label: 'Create', icon: PlusSquare },
-
-      ...(user
-        ? [{ href: '/profile', label: 'Profile', icon: User }]
-        : []),
-
-      ...(user
-        ? [{ href: '/settings', label: 'Settings', icon: Settings }]
-        : []),
+  const desktopNavItems = useMemo<NavigationItem[]>(() => {
+    const items: NavigationItem[] = [
+      {
+        href: '/',
+        label: 'Home',
+        icon: Home,
+      },
+      {
+        href: '/search',
+        label: 'Search',
+        icon: Search,
+      },
+      {
+        href: '/messages',
+        label: 'Messages',
+        icon: MessageCircle,
+      },
+      {
+        href: '/notifications',
+        label: 'Notifications',
+        icon: Heart,
+      },
+      {
+        href: '/create',
+        label: 'Create',
+        icon: PlusSquare,
+      },
     ];
+
+    if (user) {
+      items.push(
+        {
+          href: '/profile',
+          label: 'Profile',
+          icon: User,
+        },
+        {
+          href: '/settings',
+          label: 'Settings',
+          icon: Settings,
+        }
+      );
+    }
 
     if (isSuperadmin) {
       items.push({
@@ -109,32 +155,72 @@ export default function AppShell({ children }: AppShellProps) {
     return items;
   }, [user, isSuperadmin]);
 
-  const mobileNavItems = useMemo(() => {
+  const mobileNavItems = useMemo<NavigationItem[]>(() => {
     if (user) {
       return [
-        { href: '/', label: 'Home', icon: Home },
-        { href: '/search', label: 'Search', icon: Search },
-        { href: '/create', label: 'Create', icon: PlusSquare },
-        { href: '/messages', label: 'Messages', icon: MessageCircle },
-        { href: '/profile', label: 'Profile', icon: User },
+        {
+          href: '/',
+          label: 'Home',
+          icon: Home,
+        },
+        {
+          href: '/search',
+          label: 'Search',
+          icon: Search,
+        },
+        {
+          href: '/create',
+          label: 'Create',
+          icon: PlusSquare,
+        },
+        {
+          href: '/messages',
+          label: 'Messages',
+          icon: MessageCircle,
+        },
+        {
+          href: '/profile',
+          label: 'Profile',
+          icon: User,
+        },
       ];
     }
 
     return [
-      { href: '/', label: 'Home', icon: Home },
-      { href: '/search', label: 'Search', icon: Search },
-      { href: '/login', label: 'Sign In', icon: LogIn },
+      {
+        href: '/',
+        label: 'Home',
+        icon: Home,
+      },
+      {
+        href: '/search',
+        label: 'Search',
+        icon: Search,
+      },
+      {
+        href: '/login',
+        label: 'Sign In',
+        icon: LogIn,
+      },
     ];
   }, [user]);
 
-  const moreItems = useMemo(() => {
-    const items = [
-      { href: '/notifications', label: 'Notifications', icon: Heart },
-
-      ...(user
-        ? [{ href: '/settings', label: 'Settings', icon: Settings }]
-        : []),
+  const moreItems = useMemo<NavigationItem[]>(() => {
+    const items: NavigationItem[] = [
+      {
+        href: '/notifications',
+        label: 'Notifications',
+        icon: Heart,
+      },
     ];
+
+    if (user) {
+      items.push({
+        href: '/settings',
+        label: 'Settings',
+        icon: Settings,
+      });
+    }
 
     if (isSuperadmin) {
       items.push({
@@ -147,19 +233,24 @@ export default function AppShell({ children }: AppShellProps) {
     return items;
   }, [user, isSuperadmin]);
 
-  const isActiveRoute = (href: string) => {
-    if (href === '/') return pathname === '/';
+  function isActiveRoute(href: string) {
+    if (href === '/') {
+      return pathname === '/';
+    }
 
     return (
       pathname === href ||
       pathname.startsWith(`${href}/`)
     );
-  };
+  }
 
   return (
     <div className="flex min-h-screen bg-white text-neutral-900 dark:bg-black dark:text-neutral-100">
-      {/* Desktop Sidebar */}
+
+      {/* DESKTOP SIDEBAR - UNCHANGED */}
+
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 select-none flex-col border-r border-neutral-200 p-6 dark:border-neutral-800 md:flex">
+
         <Link
           href="/"
           className="mb-8 flex items-center gap-3"
@@ -177,7 +268,7 @@ export default function AppShell({ children }: AppShellProps) {
           aria-label="Desktop Navigation"
           className="flex-1 space-y-1 overflow-y-auto"
         >
-          {navItems.map((item) => {
+          {desktopNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = isActiveRoute(item.href);
 
@@ -185,7 +276,9 @@ export default function AppShell({ children }: AppShellProps) {
               <Link
                 key={item.href}
                 href={item.href}
-                aria-current={isActive ? 'page' : undefined}
+                aria-current={
+                  isActive ? 'page' : undefined
+                }
                 className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors ${
                   isActive
                     ? 'bg-neutral-100 font-semibold text-neutral-900 dark:bg-neutral-900 dark:text-neutral-100'
@@ -193,80 +286,80 @@ export default function AppShell({ children }: AppShellProps) {
                 }`}
               >
                 <Icon className="h-5 w-5" />
-                <span>{item.label}</span>
+
+                <span>
+                  {item.label}
+                </span>
               </Link>
             );
           })}
         </nav>
       </aside>
 
-      {/* Main Content */}
+      {/* MAIN CONTENT */}
+
       <main className="min-w-0 flex-1 pb-20 md:pb-0">
         {children}
       </main>
 
-      {/* Mobile Top Bar */}
-      <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-neutral-200 bg-white px-4 dark:border-neutral-800 dark:bg-black md:hidden">
-        <Link
-          href="/"
-          className="flex items-center gap-2"
-        >
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 font-bold text-white">
-            S
-          </div>
+      {/* MOBILE TOP HEADER REMOVED */}
 
-          <span className="font-bold tracking-tight">
-            Socials
-          </span>
-        </Link>
+      {/* MOBILE MORE MENU */}
 
-        <button
-          type="button"
-          aria-label={moreOpen ? 'Close menu' : 'Open menu'}
-          aria-expanded={moreOpen}
-          onClick={() => setMoreOpen((value) => !value)}
-          className="rounded-lg p-2 text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-900"
-        >
-          {moreOpen ? (
-            <X size={23} />
-          ) : (
-            <Menu size={23} />
-          )}
-        </button>
-      </header>
-
-      {/* Mobile More Menu */}
       {moreOpen && (
-        <div className="fixed inset-x-0 top-14 z-40 border-b border-neutral-200 bg-white p-3 shadow-lg dark:border-neutral-800 dark:bg-neutral-950 md:hidden">
-          <nav aria-label="Additional mobile navigation">
-            {moreItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = isActiveRoute(item.href);
+        <>
+          <button
+            type="button"
+            aria-label="Close additional navigation"
+            className="fixed inset-0 z-40 bg-black/30 md:hidden"
+            onClick={() => setMoreOpen(false)}
+          />
 
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setMoreOpen(false)}
-                  aria-current={
-                    isActive ? 'page' : undefined
-                  }
-                  className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium ${
-                    isActive
-                      ? 'bg-blue-50 text-blue-600 dark:bg-blue-950'
-                      : 'text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-900'
-                  }`}
-                >
-                  <Icon size={20} />
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
-        </div>
+          <div className="fixed inset-x-3 bottom-20 z-50 rounded-2xl border border-neutral-200 bg-white p-3 shadow-xl dark:border-neutral-800 dark:bg-neutral-950 md:hidden">
+
+            <div className="mb-2 flex items-center justify-between px-2 py-1">
+              <h2 className="font-semibold">
+                More
+              </h2>
+
+              <button
+                type="button"
+                aria-label="Close menu"
+                onClick={() => setMoreOpen(false)}
+                className="rounded-lg p-2 hover:bg-neutral-100 dark:hover:bg-neutral-900"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <nav aria-label="Additional mobile navigation">
+              {moreItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = isActiveRoute(item.href);
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setMoreOpen(false)}
+                    className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium ${
+                      isActive
+                        ? 'bg-blue-50 text-blue-600 dark:bg-blue-950'
+                        : 'text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-900'
+                    }`}
+                  >
+                    <Icon size={20} />
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </nav>
+          </div>
+        </>
       )}
 
-      {/* Mobile Bottom Navigation */}
+      {/* MOBILE BOTTOM NAVIGATION */}
+
       <nav
         aria-label="Mobile Navigation"
         className="fixed bottom-0 left-0 right-0 z-50 flex min-h-16 items-center justify-around border-t border-neutral-200 bg-white px-1 pb-[env(safe-area-inset-bottom)] dark:border-neutral-800 dark:bg-black md:hidden"
@@ -300,6 +393,29 @@ export default function AppShell({ children }: AppShellProps) {
             </Link>
           );
         })}
+
+        {/* MORE BUTTON */}
+
+        <button
+          type="button"
+          onClick={() => setMoreOpen((open) => !open)}
+          aria-label="More navigation options"
+          aria-expanded={moreOpen}
+          className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-lg px-1 py-2 transition-colors ${
+            moreOpen
+              ? 'text-blue-600'
+              : 'text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100'
+          }`}
+        >
+          <MoreHorizontal
+            className="h-5 w-5"
+            strokeWidth={moreOpen ? 2.5 : 2}
+          />
+
+          <span className="text-[10px] font-medium">
+            More
+          </span>
+        </button>
       </nav>
     </div>
   );
