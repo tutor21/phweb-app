@@ -1,8 +1,10 @@
+
 {
-  "name": "phweb.app",
-  "short_name": "phweb",
-  "description": "Minimalist photo-sharing social media platform",
+  "name": "Socials",
+  "short_name": "Socials",
+  "description": "Socials is a social networking platform where you can connect with friends, share moments, discover posts, and join conversations.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#000000",
