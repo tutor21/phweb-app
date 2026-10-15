@@ -1,292 +1,481 @@
-
+﻿
 'use client';
 
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/app/utils/supabase/client';
+import AppShell from '@/app/components/AppShell';
+import AdSenseInFeed from '@/app/components/AdSenseInFeed';
 import {
-  ArrowRight,
-  Eye,
-  EyeOff,
-  Heart,
-  Loader2,
-  LockKeyhole,
-  Mail,
   MessageCircle,
-  ShieldCheck,
-  Users,
+  Plus,
+  Search,
+  User,
+  RefreshCw,
+  X,
 } from 'lucide-react';
 
-export default function LoginPage() {
+type Profile = {
+  id: string;
+  username: string | null;
+  name: string | null;
+  avatar: string | null;
+};
+
+type Conversation = {
+  id: string;
+  updated_at: string;
+  other: Profile | null;
+  preview: string | null;
+};
+
+type Member = {
+  conversation_id: string;
+  user_id: string;
+};
+
+function errorText(value: unknown): string {
+  if (value instanceof Error) return value.message;
+
+  if (
+    value &&
+    typeof value === 'object' &&
+    'message' in value
+  ) {
+    return String(value.message);
+  }
+
+  return 'Something went wrong.';
+}
+
+export default function MessagesPage() {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
 
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [visible, setVisible] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [checking, setChecking] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    let active = true;
+  const [modal, setModal] = useState(false);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<Profile[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [starting, setStarting] = useState<string | null>(null);
 
-    async function checkLogin() {
-      const { data } = await supabase.auth.getSession();
-
-      if (!active) return;
-
-      if (data.session) {
-        router.replace('/');
-        router.refresh();
-      } else {
-        setChecking(false);
-      }
-    }
-
-    void checkLogin().catch(() => {
-      if (active) setChecking(false);
-    });
-
-    return () => {
-      active = false;
-    };
-  }, [router, supabase]);
-
-  async function handleLogin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (loading) return;
-
+  const loadInbox = useCallback(async () => {
     setLoading(true);
     setError('');
 
     try {
-      const { error: loginError } =
-        await supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password,
-        });
+      const { data: auth, error: authError } =
+        await supabase.auth.getUser();
 
-      if (loginError) throw loginError;
+      if (authError) throw authError;
 
-      router.replace('/');
-      router.refresh();
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : 'Login failed.';
+      if (!auth.user) {
+        router.replace('/login');
+        return;
+      }
 
-      setError(
-        message.toLowerCase().includes('invalid login credentials')
-          ? 'Incorrect email or password. Please try again.'
-          : message
+      const me = auth.user.id;
+      setUserId(me);
+
+      const { data: myRows, error: myError } = await supabase
+        .from('conversation_members')
+        .select('conversation_id')
+        .eq('user_id', me);
+
+      if (myError) throw myError;
+
+      const ids = (myRows ?? []).map(
+        (row: { conversation_id: string }) => row.conversation_id
       );
+
+      if (ids.length === 0) {
+        setConversations([]);
+        return;
+      }
+
+      const [convResult, memberResult, latestResult] =
+        await Promise.all([
+          supabase
+            .from('conversations')
+            .select('id, updated_at')
+            .in('id', ids)
+            .order('updated_at', { ascending: false }),
+
+          supabase
+            .from('conversation_members')
+            .select('conversation_id, user_id')
+            .in('conversation_id', ids),
+
+          supabase
+            .from('messages')
+            .select('conversation_id, text, created_at')
+            .in('conversation_id', ids)
+            .order('created_at', { ascending: false })
+            .limit(500),
+        ]);
+
+      if (convResult.error) throw convResult.error;
+      if (memberResult.error) throw memberResult.error;
+      if (latestResult.error) throw latestResult.error;
+
+      const members = (memberResult.data ?? []) as Member[];
+
+      const otherIds = [
+        ...new Set(
+          members
+            .filter((m) => m.user_id !== me)
+            .map((m) => m.user_id)
+        ),
+      ];
+
+      let profiles: Profile[] = [];
+
+      if (otherIds.length) {
+        const profileResult = await supabase
+          .from('profiles')
+          .select('id, username, name, avatar')
+          .in('id', otherIds);
+
+        if (profileResult.error) throw profileResult.error;
+
+        profiles = (profileResult.data ?? []) as Profile[];
+      }
+
+      const profileMap = new Map(
+        profiles.map((p) => [p.id, p])
+      );
+
+      const previews = new Map<string, string>();
+
+      for (const msg of latestResult.data ?? []) {
+        if (!previews.has(msg.conversation_id)) {
+          previews.set(msg.conversation_id, msg.text);
+        }
+      }
+
+      setConversations(
+        (convResult.data ?? []).map((c) => {
+          const otherId = members.find(
+            (m) =>
+              m.conversation_id === c.id &&
+              m.user_id !== me
+          )?.user_id;
+
+          return {
+            id: c.id,
+            updated_at: c.updated_at,
+            other: otherId
+              ? profileMap.get(otherId) ?? null
+              : null,
+            preview: previews.get(c.id) ?? null,
+          };
+        })
+      );
+    } catch (err) {
+      console.error('INBOX_ERROR', err);
+      setError(errorText(err));
     } finally {
       setLoading(false);
     }
-  }
+  }, [router, supabase]);
 
-  if (checking) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-neutral-50 dark:bg-neutral-950">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-      </main>
-    );
-  }
+  useEffect(() => {
+    void loadInbox();
+  }, [loadInbox]);
+
+  useEffect(() => {
+    if (!modal || !userId || !query.trim()) {
+      setResults([]);
+      setSearching(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const timeout = setTimeout(async () => {
+      setSearching(true);
+
+      const {
+        data,
+        error: searchError,
+      } = await supabase
+        .from('profiles')
+        .select('id, username, name, avatar')
+        .neq('id', userId)
+        .ilike('username', `%${query.trim()}%`)
+        .limit(12);
+
+      if (!cancelled) {
+        setSearching(false);
+
+        if (searchError) {
+          setError(errorText(searchError));
+        } else {
+          setResults((data ?? []) as Profile[]);
+        }
+      }
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
+  }, [modal, query, supabase, userId]);
+
+  const startConversation = async (otherId: string) => {
+    if (starting) return;
+
+    setStarting(otherId);
+    setError('');
+
+    try {
+      const { data, error: rpcError } = await supabase.rpc(
+        'start_direct_conversation',
+        { p_other_user_id: otherId }
+      );
+
+      if (rpcError) throw rpcError;
+
+      if (typeof data !== 'string') {
+        throw new Error('Conversation ID was not returned.');
+      }
+
+      router.push(`/messages/${data}`);
+    } catch (err) {
+      console.error('START_CHAT_ERROR', err);
+      setError(errorText(err));
+    } finally {
+      setStarting(null);
+    }
+  };
 
   return (
-    <main className="grid min-h-screen bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-white lg:grid-cols-2">
-      <section className="relative hidden flex-col justify-between overflow-hidden bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-800 p-12 text-white lg:flex">
-        <div className="absolute -left-24 top-1/3 h-80 w-80 rounded-full bg-white/10 blur-3xl" />
-        <div className="absolute -right-20 bottom-0 h-96 w-96 rounded-full bg-indigo-300/20 blur-3xl" />
-
-        <Link href="/" className="relative z-10 flex items-center gap-3">
-          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-2xl font-black text-blue-600">
-            S
-          </span>
-          <span className="text-3xl font-extrabold">Socials</span>
-        </Link>
-
-        <div className="relative z-10 max-w-lg">
-          <h1 className="text-5xl font-extrabold leading-tight tracking-tight">
-            Your world.
-            <br />
-            Your people.
-            <br />
-            Your Socials.
+    <AppShell>
+      <main className="mx-auto max-w-3xl px-4 py-6 text-neutral-900 dark:text-neutral-100">
+        <div className="mb-6 flex items-center justify-between gap-3">
+          <h1 className="text-2xl font-bold">
+            Messages
           </h1>
 
-          <p className="mt-6 max-w-md text-lg leading-8 text-blue-100">
-            Share your moments, discover conversations, and stay
-            connected with your community.
-          </p>
-
-          <div className="mt-10 grid grid-cols-3 gap-3">
-            {[
-              { icon: MessageCircle, title: 'Messages' },
-              { icon: Heart, title: 'Connections' },
-              { icon: Users, title: 'Community' },
-            ].map(({ icon: Icon, title }) => (
-              <div
-                key={title}
-                className="rounded-2xl border border-white/20 bg-white/10 p-4"
-              >
-                <Icon size={23} />
-                <p className="mt-3 text-sm font-semibold">{title}</p>
-              </div>
-            ))}
-          </div>
+          <button
+            type="button"
+            onClick={() => setModal(true)}
+            className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+          >
+            <Plus size={18} />
+            New chat
+          </button>
         </div>
 
-        <p className="relative z-10 text-sm text-blue-100/80">
-          © {new Date().getFullYear()} Socials
-        </p>
-      </section>
+        {error && (
+          <div
+            role="alert"
+            className="mb-4 rounded-xl border border-red-300 p-3 text-sm text-red-600"
+          >
+            {error}
+          </div>
+        )}
 
-      <section className="flex min-h-screen flex-col">
-        <header className="flex items-center justify-between px-6 py-6 sm:px-10">
-          <Link href="/" className="flex items-center gap-2 lg:hidden">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-lg font-black text-white">
-              S
-            </span>
-            <span className="text-xl font-extrabold">Socials</span>
-          </Link>
-
-          <p className="ml-auto text-sm text-neutral-500">
-            New here?{' '}
-            <Link href="/register" className="font-semibold text-blue-600 hover:underline">
-              Sign up
-            </Link>
-          </p>
-        </header>
-
-        <div className="flex flex-1 items-center justify-center px-6 pb-12 sm:px-10">
-          <div className="w-full max-w-md">
-            <div className="mb-8">
-              <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300">
-                <ShieldCheck size={14} />
-                Secure account access
+        {loading ? (
+          <div className="flex items-center gap-2 py-16 text-neutral-500">
+            <RefreshCw
+              className="animate-spin"
+              size={18}
+            />
+            Loading inbox...
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-2xl border border-neutral-200 dark:border-neutral-800">
+            {conversations.length === 0 ? (
+              <div className="px-6 py-16 text-center text-neutral-500">
+                <MessageCircle
+                  className="mx-auto mb-3"
+                  size={36}
+                />
+                <p>
+                  No conversations yet. Start a new chat.
+                </p>
               </div>
+            ) : (
+              conversations.map((conv) => (
+                <button
+                  type="button"
+                  key={conv.id}
+                  onClick={() =>
+                    router.push(`/messages/${conv.id}`)
+                  }
+                  className="flex w-full items-center gap-3 border-b border-neutral-200 p-4 text-left last:border-b-0 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"
+                >
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
+                    {conv.other?.avatar ? (
+                      <img
+                        src={conv.other.avatar}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <User size={22} />
+                    )}
+                  </div>
 
-              <h2 className="text-3xl font-extrabold tracking-tight sm:text-4xl">
-                Welcome back
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold">
+                      @{conv.other?.username ?? 'user'}
+                    </p>
+
+                    <p className="truncate text-sm text-neutral-500">
+                      {conv.preview ??
+                        'Start the conversation'}
+                    </p>
+                  </div>
+
+                  <span className="shrink-0 text-xs text-neutral-400">
+                    {new Date(
+                      conv.updated_at
+                    ).toLocaleDateString()}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => void loadInbox()}
+          className="mt-4 flex items-center gap-2 text-sm text-blue-600"
+        >
+          <RefreshCw size={15} />
+          Refresh inbox
+        </button>
+
+        {/* GOOGLE ADSENSE - BELOW THE MESSAGES SECTION */}
+        {!loading && userId && (
+          <section
+            aria-label="Advertisement"
+            className="mt-8 w-full border-t border-neutral-200 pt-6 dark:border-neutral-800"
+          >
+            <p className="mb-3 text-center text-xs uppercase tracking-wider text-neutral-400">
+              Advertisement
+            </p>
+
+            <AdSenseInFeed />
+          </section>
+        )}
+      </main>
+
+      {modal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              setModal(false);
+            }
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label="New chat"
+            className="w-full max-w-md rounded-2xl bg-white p-5 text-neutral-900 shadow-xl dark:bg-neutral-950 dark:text-white"
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-bold">
+                New message
               </h2>
 
-              <p className="mt-3 text-sm text-neutral-500">
-                Log in to continue connecting on Socials.
-              </p>
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={() => {
+                  setModal(false);
+                  setQuery('');
+                }}
+              >
+                <X size={20} />
+              </button>
             </div>
 
-            <form onSubmit={handleLogin} className="space-y-5">
-              <div>
-                <label htmlFor="email" className="mb-2 block text-sm font-semibold">
-                  Email address
-                </label>
+            <div className="relative">
+              <Search
+                className="absolute left-3 top-3 text-neutral-400"
+                size={18}
+              />
 
-                <div className="relative">
-                  <Mail
-                    size={19}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400"
-                  />
-                  <input
-                    id="email"
-                    type="email"
-                    autoComplete="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@example.com"
-                    disabled={loading}
-                    className="w-full rounded-xl border border-neutral-300 bg-white py-3.5 pl-12 pr-4 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-neutral-800 dark:bg-neutral-900"
-                  />
-                </div>
-              </div>
+              <input
+                autoFocus
+                value={query}
+                onChange={(e) =>
+                  setQuery(e.target.value)
+                }
+                placeholder="Search username"
+                className="w-full rounded-xl border border-neutral-300 bg-transparent py-2.5 pl-10 pr-3 outline-none focus:border-blue-500 dark:border-neutral-700"
+              />
+            </div>
 
-              <div>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <label htmlFor="password" className="text-sm font-semibold">
-                    Password
-                  </label>
-                  <Link
-                    href="/forgot-password"
-                    className="text-xs font-semibold text-blue-600 hover:underline"
-                  >
-                    Forgot password?
-                  </Link>
-                </div>
-
-                <div className="relative">
-                  <LockKeyhole
-                    size={19}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400"
-                  />
-                  <input
-                    id="password"
-                    type={visible ? 'text' : 'password'}
-                    autoComplete="current-password"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter your password"
-                    disabled={loading}
-                    className="w-full rounded-xl border border-neutral-300 bg-white py-3.5 pl-12 pr-12 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-neutral-800 dark:bg-neutral-900"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setVisible((v) => !v)}
-                    aria-label={visible ? 'Hide password' : 'Show password'}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-blue-600"
-                  >
-                    {visible ? <EyeOff size={19} /> : <Eye size={19} />}
-                  </button>
-                </div>
-              </div>
-
-              {error && (
-                <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-400">
-                  {error}
+            <div className="mt-3 max-h-72 overflow-y-auto">
+              {searching && (
+                <p className="p-3 text-sm text-neutral-500">
+                  Searching...
                 </p>
               )}
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3.5 text-sm font-bold text-white transition hover:bg-blue-700 disabled:opacity-60"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 size={18} className="animate-spin" />
-                    Logging in...
-                  </>
-                ) : (
-                  <>
-                    Log In <ArrowRight size={18} />
-                  </>
+              {!searching &&
+                query.trim() &&
+                results.length === 0 && (
+                  <p className="p-3 text-sm text-neutral-500">
+                    No matching users
+                  </p>
                 )}
-              </button>
-            </form>
 
-            <div className="mt-8 border-t border-neutral-200 pt-7 text-center dark:border-neutral-800">
-              <p className="text-sm text-neutral-500">
-                Don't have an account?
-              </p>
-              <Link
-                href="/register"
-                className="mt-3 flex w-full items-center justify-center rounded-xl border border-neutral-300 px-5 py-3 font-semibold hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-900"
-              >
-                Create a Free Account
-              </Link>
+              {results.map((p) => (
+                <button
+                  type="button"
+                  key={p.id}
+                  disabled={!!starting}
+                  onClick={() =>
+                    void startConversation(p.id)
+                  }
+                  className="flex w-full items-center gap-3 rounded-xl p-3 text-left hover:bg-neutral-100 disabled:opacity-50 dark:hover:bg-neutral-900"
+                >
+                  <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
+                    {p.avatar ? (
+                      <img
+                        src={p.avatar}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <User size={18} />
+                    )}
+                  </div>
+
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold">
+                      @{p.username ?? 'user'}
+                    </p>
+
+                    <p className="truncate text-xs text-neutral-500">
+                      {p.name ?? ''}
+                    </p>
+                  </div>
+
+                  {starting === p.id && (
+                    <RefreshCw
+                      className="ml-auto animate-spin"
+                      size={16}
+                    />
+                  )}
+                </button>
+              ))}
             </div>
-
-            <p className="mt-6 text-center text-xs text-neutral-400">
-              Forgot your credentials?{' '}
-              <Link href="/forgot-password" className="font-semibold text-blue-600 hover:underline">
-                Reset your password
-              </Link>
-            </p>
-          </div>
+          </section>
         </div>
-      </section>
-    </main>
+      )}
+    </AppShell>
   );
 }
