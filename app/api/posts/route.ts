@@ -4,7 +4,9 @@ import { createClient } from '@supabase/supabase-js';
 import { scanImage } from '@/app/utils/moderation/scan-image';
 
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+const MAX_REQUEST_SIZE = 6 * 1024 * 1024;
 const MAX_CAPTION_LENGTH = 500;
+const READ_TIMEOUT_MS = 15000;
 
 const IMAGE_TYPES: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -12,6 +14,120 @@ const IMAGE_TYPES: Record<string, string> = {
   'image/webp': 'webp',
 };
 
+// Type returned by the custom Supabase rate-limiting RPC.
+type RateLimitResult = {
+  allowed: boolean;
+  retry_after_seconds: number;
+};
+
+function errorResponse(
+  message: string,
+  status: number,
+  retryAfter?: number
+) {
+  return NextResponse.json(
+    {
+      success: false,
+      error: message,
+    },
+    {
+      status,
+      headers:
+        retryAfter !== undefined
+          ? { 'Retry-After': String(retryAfter) }
+          : undefined,
+    }
+  );
+}
+
+class RequestTooLargeError extends Error {}
+class RequestTimeoutError extends Error {}
+
+/**
+ * Read an upload while enforcing a strict application-level
+ * request size limit and a total read timeout.
+ *
+ * NGINX should independently enforce the upstream 6 MB limit.
+ */
+async function readLimitedBody(
+  request: NextRequest
+): Promise<Uint8Array<ArrayBuffer>> {
+  if (!request.body) {
+    throw new Error('Missing request body.');
+  }
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+
+  let total = 0;
+
+  const timeoutController = new AbortController();
+  const timeoutId = setTimeout(() => {
+    timeoutController.abort();
+  }, READ_TIMEOUT_MS);
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutController.signal.addEventListener(
+      'abort',
+      () => reject(new RequestTimeoutError()),
+      { once: true }
+    );
+  });
+
+  let completed = false;
+
+  try {
+    while (true) {
+      const result = await Promise.race([
+        reader.read(),
+        timeoutPromise,
+      ]);
+
+      if (result.done) {
+        completed = true;
+        break;
+      }
+
+      total += result.value.byteLength;
+
+      if (total > MAX_REQUEST_SIZE) {
+        throw new RequestTooLargeError();
+      }
+
+      chunks.push(result.value);
+    }
+
+    const combined = new Uint8Array(
+      new ArrayBuffer(total)
+    );
+
+    let offset = 0;
+
+    for (const chunk of chunks) {
+      combined.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+
+    return combined;
+  } finally {
+    clearTimeout(timeoutId);
+
+    if (!completed) {
+      try {
+        await reader.cancel();
+      } catch {
+        // Ignore cancellation errors during cleanup.
+      }
+    }
+
+    reader.releaseLock();
+  }
+}
+
+/**
+ * Verify the actual file signature instead of trusting
+ * the MIME type supplied by the browser.
+ */
 function isValidImageSignature(
   buffer: Buffer,
   mimeType: string
@@ -26,13 +142,11 @@ function isValidImageSignature(
   }
 
   if (mimeType === 'image/png') {
-    const pngSignature = Buffer.from([
-      137, 80, 78, 71, 13, 10, 26, 10,
-    ]);
-
     return (
       buffer.length >= 8 &&
-      buffer.subarray(0, 8).equals(pngSignature)
+      buffer.subarray(0, 8).equals(
+        Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
+      )
     );
   }
 
@@ -47,16 +161,26 @@ function isValidImageSignature(
   return false;
 }
 
-function errorResponse(
-  message: string,
-  status: number
-) {
-  return NextResponse.json(
-    {
-      success: false,
-      error: message,
-    },
-    { status }
+/**
+ * Validate the shape of the custom rate-limiting RPC response.
+ */
+function isRateLimitResult(
+  value: unknown
+): value is RateLimitResult {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !('allowed' in value) ||
+    !('retry_after_seconds' in value)
+  ) {
+    return false;
+  }
+
+  return (
+    typeof value.allowed === 'boolean' &&
+    typeof value.retry_after_seconds === 'number' &&
+    Number.isFinite(value.retry_after_seconds) &&
+    value.retry_after_seconds >= 0
   );
 }
 
@@ -64,59 +188,44 @@ export async function POST(request: NextRequest) {
   const supabaseUrl =
     process.env.NEXT_PUBLIC_SUPABASE_URL;
 
-  const supabaseAnonKey =
+  const anonKey =
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  const supabaseServiceKey =
+  const serviceKey =
     process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  const openaiApiKey =
-    process.env.OPENAI_API_KEY;
-
-  if (
-    !supabaseUrl ||
-    !supabaseAnonKey ||
-    !supabaseServiceKey
-  ) {
-    console.error(
-      'Missing Supabase environment variables.'
-    );
-
+  // Fail closed when required server configuration is missing.
+  if (!supabaseUrl || !anonKey || !serviceKey) {
     return errorResponse(
       'Publishing service is not configured.',
       503
     );
   }
 
+  // Require a valid Supabase access token.
   const authorization =
     request.headers.get('authorization');
 
-  if (
-    !authorization ||
-    !authorization.startsWith('Bearer ')
-  ) {
+  if (!authorization?.startsWith('Bearer ')) {
     return errorResponse(
       'Please log in to publish a post.',
       401
     );
   }
 
-  const accessToken = authorization
-    .slice(7)
-    .trim();
+  const token = authorization.slice(7).trim();
 
-  if (!accessToken) {
+  if (!token) {
     return errorResponse(
       'Invalid authentication token.',
       401
     );
   }
 
-  // Authenticate the requesting user using their
-  // Supabase access token, not a user ID from the browser.
+  // Authenticate using the public Supabase client.
   const authClient = createClient(
     supabaseUrl,
-    supabaseAnonKey,
+    anonKey,
     {
       auth: {
         persistSession: false,
@@ -128,9 +237,7 @@ export async function POST(request: NextRequest) {
   const {
     data: { user },
     error: authError,
-  } = await authClient.auth.getUser(
-    accessToken
-  );
+  } = await authClient.auth.getUser(token);
 
   if (authError || !user) {
     return errorResponse(
@@ -139,11 +246,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Service-role client must remain on the server.
-  // Never expose this key in client-side code.
+  // Server-only administrative client.
+  // Never expose the service role key to the browser.
   const admin = createClient(
     supabaseUrl,
-    supabaseServiceKey,
+    serviceKey,
     {
       auth: {
         persistSession: false,
@@ -152,37 +259,138 @@ export async function POST(request: NextRequest) {
     }
   );
 
-  let uploadedFilePath: string | null = null;
+  /**
+   * RATE LIMITING
+   *
+   * The Supabase database function atomically enforces
+   * 10 publishing attempts per 10-minute window.
+   *
+   * Check this before reading uploads or calling OpenAI.
+   */
+  const {
+    data: rateResult,
+    error: rateError,
+  } = await admin
+    .rpc('consume_post_rate_limit', {
+      p_user_id: user.id,
+    })
+    .single();
 
-  try {
-    // Reject obviously oversized requests early.
-    // A hosting-level body limit is still recommended.
-    const contentLength = Number(
-      request.headers.get('content-length') ?? 0
+  if (rateError || !rateResult) {
+    console.error(
+      'Rate limiter unavailable:',
+      rateError
     );
 
+    return errorResponse(
+      'Publishing is temporarily unavailable.',
+      503
+    );
+  }
+
+  // Validate the RPC response safely.
+  // This also resolves the TypeScript TS2339 errors.
+  if (!isRateLimitResult(rateResult)) {
+    console.error(
+      'Invalid rate limiter response:',
+      rateResult
+    );
+
+    return errorResponse(
+      'Publishing is temporarily unavailable.',
+      503
+    );
+  }
+
+  if (!rateResult.allowed) {
+    const retryAfter = Math.max(
+      1,
+      Math.ceil(rateResult.retry_after_seconds)
+    );
+
+    return errorResponse(
+      'Too many publishing attempts. Please try again later.',
+      429,
+      retryAfter
+    );
+  }
+
+  /**
+   * REQUEST VALIDATION
+   */
+  const contentType =
+    request.headers.get('content-type') ?? '';
+
+  if (
+    !contentType
+      .toLowerCase()
+      .startsWith('multipart/form-data;')
+  ) {
+    return errorResponse(
+      'Expected a multipart form submission.',
+      415
+    );
+  }
+
+  // Reject oversized requests based on Content-Length.
+  const declaredLength =
+    request.headers.get('content-length');
+
+  if (declaredLength !== null) {
+    const length = Number(declaredLength);
+
     if (
-      Number.isFinite(contentLength) &&
-      contentLength >
-        MAX_IMAGE_SIZE + 1024 * 1024
+      !Number.isFinite(length) ||
+      length < 0
     ) {
       return errorResponse(
-        'Upload request exceeds the size limit.',
-        413
+        'Invalid request size.',
+        400
       );
     }
 
-    const formData = await request.formData();
+    if (length > MAX_REQUEST_SIZE) {
+      return errorResponse(
+        'Request exceeds the 6 MB limit.',
+        413
+      );
+    }
+  }
 
-    const captionValue =
-      formData.get('caption');
+  let uploadedPath: string | null = null;
+
+  try {
+    /**
+     * Read the actual body with a 6 MB limit.
+     * Do not rely solely on Content-Length.
+     */
+    const body = await readLimitedBody(request);
+
+    // Parse multipart data only after the size check.
+    const parsedRequest = new Request(
+      'http://localhost/api/posts',
+      {
+        method: 'POST',
+        headers: {
+          'content-type': contentType,
+        },
+        body,
+      }
+    );
+
+    const formData = await parsedRequest.formData();
+
+    /**
+     * CAPTION VALIDATION
+     */
+    const captionValue = formData.get('caption');
 
     if (
       captionValue !== null &&
       typeof captionValue !== 'string'
     ) {
       return errorResponse(
-        'Invalid post caption.',
+        'Invalid caption.',
         400
       );
     }
@@ -194,13 +402,15 @@ export async function POST(request: NextRequest) {
 
     if (caption.length > MAX_CAPTION_LENGTH) {
       return errorResponse(
-        'Post caption cannot exceed 500 characters.',
+        'Caption cannot exceed 500 characters.',
         400
       );
     }
 
-    const imageValue =
-      formData.get('image');
+    /**
+     * IMAGE VALIDATION
+     */
+    const imageValue = formData.get('image');
 
     if (
       imageValue !== null &&
@@ -226,10 +436,9 @@ export async function POST(request: NextRequest) {
 
     let imageUrl: string | null = null;
 
-    // Only images need AI moderation.
-    // Text-only posts can publish without an image scan.
     if (imageFile) {
-      if (!openaiApiKey) {
+      // Require AI moderation to be configured.
+      if (!process.env.OPENAI_API_KEY) {
         return errorResponse(
           'Image moderation is not configured.',
           503
@@ -241,7 +450,7 @@ export async function POST(request: NextRequest) {
 
       if (!extension) {
         return errorResponse(
-          'Only JPEG, PNG, and WebP images are supported.',
+          'Only JPEG, PNG and WebP images are supported.',
           400
         );
       }
@@ -260,6 +469,7 @@ export async function POST(request: NextRequest) {
         await imageFile.arrayBuffer()
       );
 
+      // Reject files with mismatched image signatures.
       if (
         !isValidImageSignature(
           imageBuffer,
@@ -267,83 +477,72 @@ export async function POST(request: NextRequest) {
         )
       ) {
         return errorResponse(
-          'The selected image file is invalid.',
+          'The selected image is invalid.',
           400
         );
       }
 
-      // AI moderation occurs BEFORE uploading the
-      // image or creating the database record.
+      /**
+       * AI IMAGE MODERATION
+       *
+       * Scan before uploading to Supabase Storage.
+       */
       const moderationResult = await scanImage(
         imageBuffer,
         imageFile.type
       );
 
-      if (
-        moderationResult.status === 'rejected'
-      ) {
+      if (moderationResult.status === 'rejected') {
         return errorResponse(
           moderationResult.message,
           422
         );
       }
 
-      if (
-        moderationResult.status === 'review'
-      ) {
+      if (moderationResult.status === 'review') {
         return errorResponse(
-          'This image requires additional review before it can be published.',
+          'This image requires additional review before publication.',
           422
         );
       }
 
-      if (
-        moderationResult.status !== 'approved'
-      ) {
+      if (moderationResult.status !== 'approved') {
         return errorResponse(
           'Image verification could not be completed.',
           503
         );
       }
 
-      // Only approved images reach Supabase Storage.
-      uploadedFilePath =
+      /**
+       * UPLOAD APPROVED IMAGE
+       */
+      uploadedPath =
         `posts/${user.id}-${crypto.randomUUID()}.${extension}`;
 
       const { error: uploadError } =
         await admin.storage
           .from('posts')
-          .upload(
-            uploadedFilePath,
-            imageBuffer,
-            {
-              contentType: imageFile.type,
-              upsert: false,
-            }
-          );
+          .upload(uploadedPath, imageBuffer, {
+            contentType: imageFile.type,
+            upsert: false,
+          });
 
       if (uploadError) {
-        console.error(
-          'Supabase image upload failed:',
-          uploadError.message
-        );
-
-        throw new Error(
-          'Unable to upload the approved image.'
-        );
+        throw uploadError;
       }
 
-      const {
-        data: { publicUrl },
-      } = admin.storage
+      const { data } = admin.storage
         .from('posts')
-        .getPublicUrl(uploadedFilePath);
+        .getPublicUrl(uploadedPath);
 
-      imageUrl = publicUrl;
+      imageUrl = data.publicUrl;
     }
 
-    // Publish using the authenticated user's ID.
-    // The browser cannot choose another user ID.
+    /**
+     * CREATE POST
+     *
+     * Images reach this point only after moderation approval.
+     */
     const {
       data: post,
       error: insertError,
@@ -358,14 +557,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (insertError) {
-      console.error(
-        'Supabase post insert failed:',
-        insertError.message
-      );
-
-      throw new Error(
-        'Unable to save the post.'
-      );
+      throw insertError;
     }
 
     return NextResponse.json(
@@ -374,15 +566,21 @@ export async function POST(request: NextRequest) {
         message: 'Post published successfully.',
         postId: post.id,
       },
-      { status: 201 }
+      {
+        status: 201,
+      }
     );
   } catch (error) {
-    // Remove an uploaded image if post creation fails.
-    if (uploadedFilePath) {
+    /**
+     * CLEANUP
+     *
+     * Remove any uploaded image if publishing fails.
+     */
+    if (uploadedPath) {
       const { error: cleanupError } =
         await admin.storage
           .from('posts')
-          .remove([uploadedFilePath]);
+          .remove([uploadedPath]);
 
       if (cleanupError) {
         console.error(
@@ -392,8 +590,22 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    if (error instanceof RequestTooLargeError) {
+      return errorResponse(
+        'Request exceeds the 6 MB limit.',
+        413
+      );
+    }
+
+    if (error instanceof RequestTimeoutError) {
+      return errorResponse(
+        'Upload timed out. Please try again.',
+        408
+      );
+    }
+
     console.error(
-      'Socials publishing error:',
+      'Socials publishing failed:',
       error
     );
 
