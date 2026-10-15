@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/app/utils/supabase/client';
 import AppShell from '@/app/components/AppShell';
@@ -27,7 +27,6 @@ export default function ChatClient({ conversationId }: { conversationId: string 
   const [error, setError] = useState('');
   const [authorized, setAuthorized] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const channelReady = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -36,56 +35,76 @@ export default function ChatClient({ conversationId }: { conversationId: string 
     try {
       const { data: auth, error: authError } = await supabase.auth.getUser();
       if (authError) throw authError;
-      if (!auth.user) { router.replace('/login'); return; }
+      if (!auth.user) {
+        router.replace(`/login?next=${encodeURIComponent(`/messages/${conversationId}`)}`);
+        return;
+      }
       const me = auth.user.id;
       setUserId(me);
 
+      // Membership is required before loading any conversation data.
       const { data: membership, error: membershipError } = await supabase
-        .from('conversation_members').select('user_id').eq('conversation_id', conversationId);
+        .from('conversation_members')
+        .select('user_id')
+        .eq('conversation_id', conversationId);
       if (membershipError) throw membershipError;
       if (!(membership ?? []).some((row: { user_id: string }) => row.user_id === me)) {
         throw new Error('Conversation not found or access denied.');
       }
+
       const otherId = (membership ?? []).find((row: { user_id: string }) => row.user_id !== me)?.user_id;
       if (otherId) {
         const { data: profile, error: profileError } = await supabase
-          .from('profiles').select('id, username, avatar').eq('id', otherId).maybeSingle();
+          .from('profiles')
+          .select('id, username, avatar')
+          .eq('id', otherId)
+          .maybeSingle();
         if (profileError) throw profileError;
         setOther(profile as Profile | null);
-      } else setOther(null);
+      } else {
+        setOther(null);
+      }
 
       const { data, error: messagesError } = await supabase
-        .from('messages').select('id, conversation_id, sender_id, text, created_at')
-        .eq('conversation_id', conversationId).order('created_at', { ascending: true }).limit(500);
+        .from('messages')
+        .select('id, conversation_id, sender_id, text, created_at')
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: true })
+        .limit(500);
       if (messagesError) throw messagesError;
       setMessages((data ?? []) as Message[]);
       setAuthorized(true);
     } catch (err) {
       console.error('CHAT_LOAD_ERROR', err);
       setError(errorText(err));
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }, [conversationId, router, supabase]);
 
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
     if (!authorized) return;
-    channelReady.current = false;
     const channel = supabase.channel(`dm:${conversationId}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` }, payload => {
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'messages',
+        filter: `conversation_id=eq.${conversationId}`,
+      }, payload => {
         const incoming = payload.new as Message;
         setMessages(prev => prev.some(m => m.id === incoming.id) ? prev : [...prev, incoming]);
       })
       .subscribe(status => {
-        channelReady.current = status === 'SUBSCRIBED';
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setError('Live updates disconnected. Refresh to check for new messages.');
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          setError('Live updates disconnected. Refresh to check for new messages.');
+        }
       });
-    return () => { channelReady.current = false; void supabase.removeChannel(channel); };
+    return () => { void supabase.removeChannel(channel); };
   }, [authorized, conversationId, supabase]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-  const send = async (event: React.FormEvent<HTMLFormElement>) => {
+  const send = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const content = text.trim();
     if (!content || !userId || !authorized || sending || content.length > 5000) return;
@@ -94,14 +113,17 @@ export default function ChatClient({ conversationId }: { conversationId: string 
     try {
       const { data, error: insertError } = await supabase.from('messages')
         .insert({ conversation_id: conversationId, sender_id: userId, text: content })
-        .select('id, conversation_id, sender_id, text, created_at').single();
+        .select('id, conversation_id, sender_id, text, created_at')
+        .single();
       if (insertError) throw insertError;
       setMessages(prev => prev.some(m => m.id === data.id) ? prev : [...prev, data as Message]);
       setText('');
     } catch (err) {
       console.error('SEND_MESSAGE_ERROR', err);
       setError(errorText(err));
-    } finally { setSending(false); }
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
