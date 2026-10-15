@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -26,18 +27,23 @@ interface PostCardProps {
   post: {
     id: string;
     user_id: string;
-    image: string;
-    caption: string;
+    image: string | null;
+    caption: string | null;
     created_at: string;
     profiles: Profile | null;
   };
   currentUserId: string;
 }
 
-const DEFAULT_AVATAR = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150';
+const DEFAULT_AVATAR =
+  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150';
 
-export default function PostCard({ post, currentUserId }: PostCardProps) {
+export default function PostCard({
+  post,
+  currentUserId,
+}: PostCardProps) {
   const router = useRouter();
+
   const [likes, setLikes] = useState(0);
   const [isLiked, setIsLiked] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
@@ -52,11 +58,27 @@ export default function PostCard({ post, currentUserId }: PostCardProps) {
   const supabase = useMemo(() => createClient(), []);
   const authorId = post.profiles?.id || post.user_id;
 
+  const hasImage = Boolean(post.image?.trim());
+  const hasText = Boolean(post.caption?.trim());
+
+  const goToAuthor = () => {
+    router.push(
+      authorId === currentUserId
+        ? '/profile'
+        : `/profile/${authorId}`
+    );
+  };
+
   useEffect(() => {
     let active = true;
 
     async function fetchPostInteractions() {
-      const [likesResult, likeResult, saveResult, commentsResult] = await Promise.all([
+      const [
+        likesResult,
+        likeResult,
+        saveResult,
+        commentsResult,
+      ] = await Promise.all([
         supabase
           .from('likes')
           .select('*', { count: 'exact', head: true })
@@ -93,11 +115,13 @@ export default function PostCard({ post, currentUserId }: PostCardProps) {
         setLikes(likesResult.count || 0);
       }
 
-      setIsLiked(!!likeResult.data);
-      setIsSaved(!!saveResult.data);
+      setIsLiked(Boolean(likeResult.data));
+      setIsSaved(Boolean(saveResult.data));
 
       if (!commentsResult.error) {
-        setComments((commentsResult.data || []) as Comment[]);
+        setComments(
+          (commentsResult.data || []) as Comment[]
+        );
       }
     }
 
@@ -112,119 +136,184 @@ export default function PostCard({ post, currentUserId }: PostCardProps) {
     if (!currentUserId || isTogglingLike) return;
 
     setIsTogglingLike(true);
+
     const wasLiked = isLiked;
 
     setIsLiked(!wasLiked);
-    setLikes((prev) => Math.max(0, prev + (wasLiked ? -1 : 1)));
+    setLikes((prev) =>
+      Math.max(0, prev + (wasLiked ? -1 : 1))
+    );
 
-    const { error } = wasLiked
-      ? await supabase.from('likes').delete().eq('post_id', post.id).eq('user_id', currentUserId)
-      : await supabase.from('likes').insert({ post_id: post.id, user_id: currentUserId });
+    try {
+      const { error } = wasLiked
+        ? await supabase
+            .from('likes')
+            .delete()
+            .eq('post_id', post.id)
+            .eq('user_id', currentUserId)
+        : await supabase.from('likes').insert({
+            post_id: post.id,
+            user_id: currentUserId,
+          });
 
-    if (error) {
+      if (error) throw error;
+    } catch (error) {
       setIsLiked(wasLiked);
-      setLikes((prev) => Math.max(0, prev + (wasLiked ? 1 : -1)));
-      console.error('Error updating like:', error.message);
-    }
+      setLikes((prev) =>
+        Math.max(0, prev + (wasLiked ? 1 : -1))
+      );
 
-    setIsTogglingLike(false);
+      console.error('Error updating like:', error);
+    } finally {
+      setIsTogglingLike(false);
+    }
   };
 
   const toggleSave = async () => {
     if (!currentUserId || isTogglingSave) return;
 
     setIsTogglingSave(true);
+
     const wasSaved = isSaved;
     setIsSaved(!wasSaved);
 
-    const { error } = wasSaved
-      ? await supabase.from('saved_posts').delete().eq('post_id', post.id).eq('user_id', currentUserId)
-      : await supabase.from('saved_posts').insert({ post_id: post.id, user_id: currentUserId });
+    try {
+      const { error } = wasSaved
+        ? await supabase
+            .from('saved_posts')
+            .delete()
+            .eq('post_id', post.id)
+            .eq('user_id', currentUserId)
+        : await supabase.from('saved_posts').insert({
+            post_id: post.id,
+            user_id: currentUserId,
+          });
 
-    if (error) {
+      if (error) throw error;
+    } catch (error) {
       setIsSaved(wasSaved);
-      console.error('Error updating bookmark:', error.message);
+      console.error('Error updating bookmark:', error);
+    } finally {
+      setIsTogglingSave(false);
     }
-
-    setIsTogglingSave(false);
   };
 
-  const handleAddComment = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleAddComment = async (
+    event: React.FormEvent
+  ) => {
+    event.preventDefault();
+
     const text = newComment.trim();
 
     if (!text || !currentUserId || isSubmitting) return;
 
     setIsSubmitting(true);
 
-    const { data, error } = await supabase
-      .from('comments')
-      .insert({
-        post_id: post.id,
-        user_id: currentUserId,
-        text,
-      })
-      .select('*, profiles(username, avatar)')
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from('comments')
+        .insert({
+          post_id: post.id,
+          user_id: currentUserId,
+          text,
+        })
+        .select('*, profiles(username, avatar)')
+        .single();
 
-    if (!error && data) {
-      setComments((prev) => [...prev, data as Comment]);
-      setNewComment('');
-      setShowComments(true);
-    } else {
-      console.error('Error adding comment:', error?.message);
+      if (error) throw error;
+
+      if (data) {
+        setComments((prev) => [
+          ...prev,
+          data as Comment,
+        ]);
+
+        setNewComment('');
+        setShowComments(true);
+      }
+    } catch (error) {
+      console.error('Error adding comment:', error);
+    } finally {
+      setIsSubmitting(false);
     }
-
-    setIsSubmitting(false);
   };
 
   return (
-    <article id={post.id} className="border border-neutral-200 dark:border-neutral-800 rounded-2xl bg-white dark:bg-black shadow-sm overflow-hidden">
-      {/* Post Header */}
+    <article
+      id={post.id}
+      className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm dark:border-neutral-800 dark:bg-black"
+    >
+      {/* POST HEADER */}
       <div className="flex items-center justify-between p-4">
-        <div
-          onClick={() => router.push(authorId === currentUserId ? '/profile' : `/profile/${authorId}`)}
-          className="flex items-center gap-3 cursor-pointer group"
+        <button
+          type="button"
+          onClick={goToAuthor}
+          className="group flex items-center gap-3 text-left"
         >
-          <div className="w-10 h-10 rounded-full overflow-hidden bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shrink-0">
+          <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border border-neutral-200 bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900">
             <img
               src={post.profiles?.avatar || DEFAULT_AVATAR}
               alt={post.profiles?.username || 'User'}
-              className="w-full h-full object-cover group-hover:scale-105 transition"
+              className="h-full w-full object-cover transition group-hover:scale-105"
             />
           </div>
+
           <div>
-            <p className="font-semibold text-sm group-hover:underline">
+            <p className="text-sm font-semibold group-hover:underline">
               @{post.profiles?.username || 'user'}
             </p>
+
             <p className="text-xs text-neutral-400">
               {new Date(post.created_at).toLocaleDateString()}
             </p>
           </div>
-        </div>
+        </button>
 
         <button
           type="button"
           onClick={() => setShowReportModal(true)}
-          className="text-neutral-400 hover:text-red-500 transition-colors p-1"
+          className="p-1 text-neutral-400 transition-colors hover:text-red-500"
           title="Report post"
           aria-label="Report post"
         >
-          <Flag className="w-5 h-5" />
+          <Flag className="h-5 w-5" />
         </button>
       </div>
 
-      {/* Post Image */}
-      <div className="aspect-square w-full bg-neutral-100 dark:bg-neutral-900 overflow-hidden">
-        <img
-          src={post.image}
-          alt={post.caption || 'Post image'}
-          className="object-cover w-full h-full"
-          loading="lazy"
-        />
-      </div>
+      {/* TEXT CONTENT */}
+      {hasText && (
+        <div
+          className={
+            hasImage
+              ? 'px-4 pb-4'
+              : 'px-5 pb-6 pt-3'
+          }
+        >
+          <p
+            className={
+              hasImage
+                ? 'whitespace-pre-wrap break-words text-sm leading-relaxed text-neutral-800 dark:text-neutral-200'
+                : 'whitespace-pre-wrap break-words text-lg leading-relaxed text-neutral-900 dark:text-neutral-100'
+            }
+          >
+            {post.caption}
+          </p>
+        </div>
+      )}
 
-      {/* Action Buttons */}
+      {/* IMAGE CONTENT - ONLY RENDER IF PRESENT */}
+      {hasImage && (
+        <div className="flex w-full items-center justify-center overflow-hidden bg-neutral-100 dark:bg-neutral-900">
+          <img
+            src={post.image!}
+            alt={post.caption || 'Post image'}
+            className="max-h-[650px] w-full object-contain"
+            loading="lazy"
+          />
+        </div>
+      )}
+
+      {/* ACTION BUTTONS */}
       <div className="flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-4">
           <button
@@ -236,18 +325,22 @@ export default function PostCard({ post, currentUserId }: PostCardProps) {
             className="transition-transform active:scale-125 disabled:opacity-50"
           >
             <Heart
-              className={`w-6 h-6 ${
-                isLiked ? 'fill-red-500 text-red-500' : 'text-neutral-900 dark:text-white'
+              className={`h-6 w-6 ${
+                isLiked
+                  ? 'fill-red-500 text-red-500'
+                  : 'text-neutral-900 dark:text-white'
               }`}
             />
           </button>
 
           <button
             type="button"
-            onClick={() => setShowComments(!showComments)}
+            onClick={() =>
+              setShowComments((prev) => !prev)
+            }
             aria-label="Toggle comments"
           >
-            <MessageCircle className="w-6 h-6" />
+            <MessageCircle className="h-6 w-6" />
           </button>
         </div>
 
@@ -255,52 +348,58 @@ export default function PostCard({ post, currentUserId }: PostCardProps) {
           type="button"
           onClick={toggleSave}
           disabled={!currentUserId || isTogglingSave}
-          aria-label={isSaved ? 'Remove bookmark' : 'Save post'}
+          aria-label={
+            isSaved
+              ? 'Remove bookmark'
+              : 'Save post'
+          }
           aria-pressed={isSaved}
           className="disabled:opacity-50"
         >
           <Bookmark
-            className={`w-6 h-6 ${isSaved ? 'fill-black dark:fill-white' : ''}`}
+            className={`h-6 w-6 ${
+              isSaved
+                ? 'fill-black dark:fill-white'
+                : ''
+            }`}
           />
         </button>
       </div>
 
-      {/* Likes and Caption */}
-      <div className="px-4 pb-4 space-y-2">
-        <p className="font-semibold text-sm">
+      {/* LIKES, COMMENTS AND INTERACTIONS */}
+      <div className="space-y-2 px-4 pb-4">
+        <p className="text-sm font-semibold">
           {likes} {likes === 1 ? 'like' : 'likes'}
         </p>
 
-        <p className="text-sm break-words">
-          <strong
-            onClick={() => router.push(authorId === currentUserId ? '/profile' : `/profile/${authorId}`)}
-            className="mr-2 cursor-pointer hover:underline"
-          >
-            @{post.profiles?.username || 'user'}
-          </strong>
-          {post.caption}
-        </p>
-
-        {/* Comments Count */}
+        {/* COMMENTS COUNT */}
         {comments.length > 0 && (
           <button
             type="button"
-            onClick={() => setShowComments(!showComments)}
-            className="text-xs text-neutral-500 pt-1 hover:underline"
+            onClick={() =>
+              setShowComments((prev) => !prev)
+            }
+            className="pt-1 text-xs text-neutral-500 hover:underline"
           >
-            {showComments ? 'Hide comments' : `View all ${comments.length} comments`}
+            {showComments
+              ? 'Hide comments'
+              : `View all ${comments.length} comments`}
           </button>
         )}
 
-        {/* Comments List */}
+        {/* COMMENTS LIST */}
         {showComments && (
           <div className="space-y-2 pt-2">
             {comments.map((comment) => (
-              <div key={comment.id} className="text-sm flex items-start gap-2">
-                <span className="font-semibold whitespace-nowrap">
+              <div
+                key={comment.id}
+                className="flex items-start gap-2 text-sm"
+              >
+                <span className="whitespace-nowrap font-semibold">
                   @{comment.profiles?.username || 'user'}
                 </span>
-                <span className="text-neutral-700 dark:text-neutral-300 break-words">
+
+                <span className="break-words whitespace-pre-wrap text-neutral-700 dark:text-neutral-300">
                   {comment.text}
                 </span>
               </div>
@@ -308,24 +407,34 @@ export default function PostCard({ post, currentUserId }: PostCardProps) {
           </div>
         )}
 
-        {/* Add Comment */}
+        {/* ADD COMMENT */}
         <form
           onSubmit={handleAddComment}
-          className="flex items-center gap-3 pt-3 border-t border-neutral-100 dark:border-neutral-900 mt-2"
+          className="mt-2 flex items-center gap-3 border-t border-neutral-100 pt-3 dark:border-neutral-900"
         >
           <input
             type="text"
-            placeholder={currentUserId ? 'Add a comment...' : 'Sign in to comment'}
+            placeholder={
+              currentUserId
+                ? 'Add a comment...'
+                : 'Sign in to comment'
+            }
             value={newComment}
-            onChange={(e) => setNewComment(e.target.value)}
+            onChange={(event) =>
+              setNewComment(event.target.value)
+            }
             disabled={!currentUserId || isSubmitting}
             maxLength={1000}
-            className="flex-1 min-w-0 bg-transparent text-sm focus:outline-none py-1 disabled:opacity-50"
+            className="min-w-0 flex-1 bg-transparent py-1 text-sm outline-none disabled:opacity-50"
           />
 
           <button
             type="submit"
-            disabled={!newComment.trim() || !currentUserId || isSubmitting}
+            disabled={
+              !newComment.trim() ||
+              !currentUserId ||
+              isSubmitting
+            }
             className="text-sm font-semibold text-blue-500 disabled:opacity-40"
           >
             {isSubmitting ? 'Posting...' : 'Post'}
@@ -333,7 +442,7 @@ export default function PostCard({ post, currentUserId }: PostCardProps) {
         </form>
       </div>
 
-      {/* Report Modal */}
+      {/* REPORT MODAL */}
       {showReportModal && (
         <ReportModal
           targetId={post.id}
