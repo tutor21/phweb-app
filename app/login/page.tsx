@@ -1,84 +1,104 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
+import { createClient } from '@/app/utils/supabase/client';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { createClient } from '../utils/supabase/client';
+import { LogIn, Mail, Lock, AlertCircle } from 'lucide-react';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const router = useRouter();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setError(null);
+    setError('');
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (error) {
-      setError(error.message);
-      setLoading(false);
-    } else {
-      router.push('/');
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (error) throw error;
+      router.replace('/');
       router.refresh();
+    } catch (err: any) {
+      setError(err.message || 'Failed to sign in');
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-white dark:bg-black">
-      <div className="w-full max-w-sm border border-neutral-200 dark:border-neutral-800 p-8 rounded-2xl">
-        <h1 className="text-2xl font-bold text-center mb-6 tracking-tight">phweb<span className="text-neutral-400">.app</span></h1>
-        
+    <div className="min-h-screen flex items-center justify-center bg-white dark:bg-black px-4">
+      <div className="max-w-md w-full space-y-8 p-8 border border-neutral-200 dark:border-neutral-800 rounded-3xl shadow-sm">
+        <div className="text-center space-y-2">
+          <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white font-bold text-xl flex items-center justify-center mx-auto">
+            P
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight">Welcome back to phweb.app</h1>
+          <p className="text-sm text-neutral-500">Sign in to your account to continue</p>
+        </div>
+
         {error && (
-          <div className="mb-4 p-3 text-sm bg-red-50 dark:bg-red-950/50 text-red-600 dark:text-red-400 rounded-xl">
-            {error}
+          <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/20 text-red-600 text-sm flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{error}</span>
           </div>
         )}
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <input
-              type="email"
-              placeholder="Email address"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className="w-full px-4 py-3 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 text-sm focus:outline-none focus:border-black dark:focus:border-white transition-colors"
-            />
+            <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Email</label>
+            <div className="relative">
+              <Mail className="w-5 h-5 absolute left-3.5 top-3.5 text-neutral-400" />
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                className="w-full bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl pl-11 pr-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition"
+              />
+            </div>
           </div>
+
           <div>
-            <input
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              className="w-full px-4 py-3 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 text-sm focus:outline-none focus:border-black dark:focus:border-white transition-colors"
-            />
+            <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Password</label>
+            <div className="relative">
+              <Lock className="w-5 h-5 absolute left-3.5 top-3.5 text-neutral-400" />
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl pl-11 pr-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition"
+              />
+            </div>
           </div>
+
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 rounded-xl bg-black dark:bg-white text-white dark:text-black font-semibold text-sm hover:opacity-90 transition-opacity disabled:opacity-50"
+            className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm transition shadow-sm disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            {loading ? 'Logging in...' : 'Log In'}
+            <LogIn className="w-4 h-4" />
+            {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-neutral-500">
-          Don't have an account?{' '}
-          <Link href="/register" className="font-semibold text-black dark:text-white hover:underline">
+        <div className="text-center text-sm text-neutral-500">
+          Don&apos;t have an account?{' '}
+          <Link href="/signup" className="text-blue-600 font-semibold hover:underline">
             Sign up
           </Link>
-        </p>
+        </div>
       </div>
     </div>
   );
