@@ -1,12 +1,7 @@
 
 'use client';
 
-import React, {
-  useEffect,
-  useMemo,
-  useState,
-} from 'react';
-
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { createClient } from '@/app/utils/supabase/client';
@@ -37,20 +32,15 @@ interface NavigationItem {
   icon: React.ElementType;
 }
 
-export default function AppShell({
-  children,
-}: AppShellProps) {
+export default function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
-
   const supabase = useMemo(() => createClient(), []);
 
-  const [user, setUser] = useState<SupabaseUser | null>(
-    null
-  );
-
+  const [user, setUser] = useState<SupabaseUser | null>(null);
   const [isSuperadmin, setIsSuperadmin] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
 
+  // AUTHENTICATION AND ROLE CHECK
   useEffect(() => {
     let active = true;
 
@@ -100,47 +90,20 @@ export default function AppShell({
     setMoreOpen(false);
   }, [pathname]);
 
+  // DESKTOP NAVIGATION
   const desktopNavItems = useMemo<NavigationItem[]>(() => {
     const items: NavigationItem[] = [
-      {
-        href: '/',
-        label: 'Home',
-        icon: Home,
-      },
-      {
-        href: '/search',
-        label: 'Search',
-        icon: Search,
-      },
-      {
-        href: '/messages',
-        label: 'Messages',
-        icon: MessageCircle,
-      },
-      {
-        href: '/notifications',
-        label: 'Notifications',
-        icon: Heart,
-      },
-      {
-        href: '/create',
-        label: 'Create',
-        icon: PlusSquare,
-      },
+      { href: '/', label: 'Home', icon: Home },
+      { href: '/search', label: 'Search', icon: Search },
+      { href: '/messages', label: 'Messages', icon: MessageCircle },
+      { href: '/notifications', label: 'Notifications', icon: Heart },
+      { href: '/create', label: 'Create', icon: PlusSquare },
     ];
 
     if (user) {
       items.push(
-        {
-          href: '/profile',
-          label: 'Profile',
-          icon: User,
-        },
-        {
-          href: '/settings',
-          label: 'Settings',
-          icon: Settings,
-        }
+        { href: '/profile', label: 'Profile', icon: User },
+        { href: '/settings', label: 'Settings', icon: Settings }
       );
     }
 
@@ -155,56 +118,26 @@ export default function AppShell({
     return items;
   }, [user, isSuperadmin]);
 
+  // MOBILE NAVIGATION
   const mobileNavItems = useMemo<NavigationItem[]>(() => {
     if (user) {
       return [
-        {
-          href: '/',
-          label: 'Home',
-          icon: Home,
-        },
-        {
-          href: '/search',
-          label: 'Search',
-          icon: Search,
-        },
-        {
-          href: '/create',
-          label: 'Create',
-          icon: PlusSquare,
-        },
-        {
-          href: '/messages',
-          label: 'Messages',
-          icon: MessageCircle,
-        },
-        {
-          href: '/profile',
-          label: 'Profile',
-          icon: User,
-        },
+        { href: '/', label: 'Home', icon: Home },
+        { href: '/search', label: 'Search', icon: Search },
+        { href: '/create', label: 'Create', icon: PlusSquare },
+        { href: '/messages', label: 'Messages', icon: MessageCircle },
+        { href: '/profile', label: 'Profile', icon: User },
       ];
     }
 
     return [
-      {
-        href: '/',
-        label: 'Home',
-        icon: Home,
-      },
-      {
-        href: '/search',
-        label: 'Search',
-        icon: Search,
-      },
-      {
-        href: '/login',
-        label: 'Sign In',
-        icon: LogIn,
-      },
+      { href: '/', label: 'Home', icon: Home },
+      { href: '/search', label: 'Search', icon: Search },
+      { href: '/login', label: 'Sign In', icon: LogIn },
     ];
   }, [user]);
 
+  // MOBILE MORE MENU
   const moreItems = useMemo<NavigationItem[]>(() => {
     const items: NavigationItem[] = [
       {
@@ -238,35 +171,44 @@ export default function AppShell({
       return pathname === '/';
     }
 
-    return (
-      pathname === href ||
-      pathname.startsWith(`${href}/`)
-    );
+    return pathname === href || pathname.startsWith(`${href}/`);
   }
 
   return (
     <div className="flex min-h-screen bg-white text-neutral-900 dark:bg-black dark:text-neutral-100">
 
-      {/* DESKTOP SIDEBAR - UNCHANGED */}
-
-      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 select-none flex-col border-r border-neutral-200 p-6 dark:border-neutral-800 md:flex">
-
+      {/* DESKTOP FLOATING SIDEBAR */}
+      <aside
+        className="
+          sticky top-4 ml-4 mb-4
+          hidden h-[calc(100vh-2rem)] w-72 shrink-0
+          select-none flex-col
+          rounded-[28px]
+          border border-neutral-200
+          bg-white
+          p-6
+          shadow-xl
+          dark:border-neutral-800
+          dark:bg-neutral-950
+          md:flex
+        "
+      >
         <Link
           href="/"
-          className="mb-8 flex items-center gap-3"
+          className="mb-8 flex items-center gap-3 rounded-xl"
         >
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-lg font-bold text-white">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-600 text-xl font-bold text-white shadow-md">
             S
           </div>
 
-          <span className="text-xl font-bold tracking-tight">
+          <span className="text-2xl font-bold tracking-tight">
             Socials
           </span>
         </Link>
 
         <nav
           aria-label="Desktop Navigation"
-          className="flex-1 space-y-1 overflow-y-auto"
+          className="flex-1 space-y-2 overflow-y-auto"
         >
           {desktopNavItems.map((item) => {
             const Icon = item.icon;
@@ -276,36 +218,38 @@ export default function AppShell({
               <Link
                 key={item.href}
                 href={item.href}
-                aria-current={
-                  isActive ? 'page' : undefined
-                }
-                className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-neutral-100 font-semibold text-neutral-900 dark:bg-neutral-900 dark:text-neutral-100'
-                    : 'text-neutral-600 hover:bg-neutral-50 dark:text-neutral-400 dark:hover:bg-neutral-900/50'
-                }`}
+                aria-current={isActive ? 'page' : undefined}
+                className={`
+                  flex min-h-14 items-center gap-4
+                  rounded-2xl px-4 py-3
+                  text-sm font-medium
+                  transition-all duration-200
+                  ${
+                    isActive
+                      ? 'bg-blue-50 font-semibold text-blue-600 dark:bg-blue-950/50 dark:text-blue-400'
+                      : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-900 dark:hover:text-white'
+                  }
+                `}
               >
-                <Icon className="h-5 w-5" />
+                <Icon className="h-6 w-6 shrink-0" />
 
-                <span>
-                  {item.label}
-                </span>
+                <span>{item.label}</span>
               </Link>
             );
           })}
         </nav>
+
+        <div className="border-t border-neutral-200 pt-4 text-center text-xs text-neutral-400 dark:border-neutral-800">
+          Socials
+        </div>
       </aside>
 
       {/* MAIN CONTENT */}
-
-      <main className="min-w-0 flex-1 pb-20 md:pb-0">
+      <main className="min-w-0 flex-1 pb-32 md:pb-0">
         {children}
       </main>
 
-      {/* MOBILE TOP HEADER REMOVED */}
-
       {/* MOBILE MORE MENU */}
-
       {moreOpen && (
         <>
           <button
@@ -315,18 +259,25 @@ export default function AppShell({
             onClick={() => setMoreOpen(false)}
           />
 
-          <div className="fixed inset-x-3 bottom-20 z-50 rounded-2xl border border-neutral-200 bg-white p-3 shadow-xl dark:border-neutral-800 dark:bg-neutral-950 md:hidden">
-
+          <div
+            className="
+              fixed inset-x-3 bottom-28 z-50
+              rounded-[24px]
+              border border-neutral-200
+              bg-white p-3 shadow-xl
+              dark:border-neutral-800
+              dark:bg-neutral-950
+              md:hidden
+            "
+          >
             <div className="mb-2 flex items-center justify-between px-2 py-1">
-              <h2 className="font-semibold">
-                More
-              </h2>
+              <h2 className="font-semibold">More</h2>
 
               <button
                 type="button"
                 aria-label="Close menu"
                 onClick={() => setMoreOpen(false)}
-                className="rounded-lg p-2 hover:bg-neutral-100 dark:hover:bg-neutral-900"
+                className="rounded-xl p-2 hover:bg-neutral-100 dark:hover:bg-neutral-900"
               >
                 <X size={20} />
               </button>
@@ -342,11 +293,16 @@ export default function AppShell({
                     key={item.href}
                     href={item.href}
                     onClick={() => setMoreOpen(false)}
-                    className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium ${
-                      isActive
-                        ? 'bg-blue-50 text-blue-600 dark:bg-blue-950'
-                        : 'text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-900'
-                    }`}
+                    className={`
+                      flex items-center gap-3
+                      rounded-2xl px-4 py-3
+                      text-sm font-medium
+                      ${
+                        isActive
+                          ? 'bg-blue-50 text-blue-600 dark:bg-blue-950'
+                          : 'text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-900'
+                      }
+                    `}
                   >
                     <Icon size={20} />
                     {item.label}
@@ -358,11 +314,21 @@ export default function AppShell({
         </>
       )}
 
-      {/* MOBILE BOTTOM NAVIGATION */}
-
+      {/* MOBILE FLOATING BOTTOM NAVIGATION */}
       <nav
         aria-label="Mobile Navigation"
-        className="fixed bottom-0 left-0 right-0 z-50 flex min-h-16 items-center justify-around border-t border-neutral-200 bg-white px-1 pb-[env(safe-area-inset-bottom)] dark:border-neutral-800 dark:bg-black md:hidden"
+        className="
+          fixed bottom-4 left-3 right-3 z-50
+          flex min-h-20 items-center justify-around
+          rounded-[28px]
+          border border-neutral-200
+          bg-white/95
+          px-3 py-2
+          shadow-xl backdrop-blur-lg
+          dark:border-neutral-800
+          dark:bg-neutral-950/95
+          md:hidden
+        "
       >
         {mobileNavItems.map((item) => {
           const Icon = item.icon;
@@ -373,17 +339,21 @@ export default function AppShell({
               key={item.href}
               href={item.href}
               aria-label={item.label}
-              aria-current={
-                isActive ? 'page' : undefined
-              }
-              className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-lg px-1 py-2 transition-colors ${
-                isActive
-                  ? 'text-blue-600'
-                  : 'text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100'
-              }`}
+              aria-current={isActive ? 'page' : undefined}
+              className={`
+                flex min-w-0 flex-1 flex-col
+                items-center justify-center gap-1
+                rounded-2xl px-1 py-3
+                transition-all duration-200
+                ${
+                  isActive
+                    ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400'
+                    : 'text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100'
+                }
+              `}
             >
               <Icon
-                className="h-5 w-5"
+                className="h-6 w-6"
                 strokeWidth={isActive ? 2.5 : 2}
               />
 
@@ -394,21 +364,25 @@ export default function AppShell({
           );
         })}
 
-        {/* MORE BUTTON */}
-
         <button
           type="button"
           onClick={() => setMoreOpen((open) => !open)}
           aria-label="More navigation options"
           aria-expanded={moreOpen}
-          className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-lg px-1 py-2 transition-colors ${
-            moreOpen
-              ? 'text-blue-600'
-              : 'text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100'
-          }`}
+          className={`
+            flex min-w-0 flex-1 flex-col
+            items-center justify-center gap-1
+            rounded-2xl px-1 py-3
+            transition-all duration-200
+            ${
+              moreOpen
+                ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400'
+                : 'text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100'
+            }
+          `}
         >
           <MoreHorizontal
-            className="h-5 w-5"
+            className="h-6 w-6"
             strokeWidth={moreOpen ? 2.5 : 2}
           />
 
