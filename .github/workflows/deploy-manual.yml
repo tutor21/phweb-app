@@ -3,6 +3,9 @@ name: Deploy Socials to Namecheap (Manual)
 
 on:
   workflow_dispatch:
+     push:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -103,7 +106,10 @@ jobs:
 
           chmod -R u+X ~/socials-release-stage/.next
 
-          test ! -e .next-github-backup
+          if [ -d .next-github-backup ]; then
+            mv .next-github-backup ".next-previous-$(date +%Y%m%d%H%M%S)"
+          fi
+
           mv .next .next-github-backup
           mv ~/socials-release-stage/.next .next
 
