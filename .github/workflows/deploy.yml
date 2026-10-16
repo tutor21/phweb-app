@@ -28,7 +28,7 @@ jobs:
         run: npm ci --include=dev
 
       - name: Build Next.js with Webpack
-       env:
+        env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
         run: npx next build --webpack
