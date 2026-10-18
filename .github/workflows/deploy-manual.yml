@@ -119,8 +119,8 @@ jobs:
         run: |
           for i in $(seq 1 12); do
             if curl -fsSL --max-time 15 \
-              https://socials.primeflix4all.site/ -o /dev/null; then
-              echo "Homepage responded successfully"
+              https://socials.primeflix4all.site/api/health -o /dev/null; then
+              echo "Health check passed"
               exit 0
             fi
             sleep 5
