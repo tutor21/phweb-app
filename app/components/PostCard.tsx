@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/app/utils/supabase/client';
 import ReportModal from '@/app/components/ReportModal';
+import PostRichText from '@/app/components/PostRichText';
 interface Profile {
   id: string;
   username: string;
@@ -556,7 +557,7 @@ export default function PostCard({
               : 'pb-6 pt-2 text-lg'
           } leading-relaxed`}
         >
-          {post.caption}
+          <PostRichText text={post.caption} />
         </p>
       )}
       {/* POST IMAGE */}
