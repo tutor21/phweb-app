@@ -2,6 +2,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import Script from 'next/script';
+import ThemeProvider from '@/app/components/ThemeProvider';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -72,20 +73,22 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
-        className={`${inter.className} h-full bg-white dark:bg-black text-neutral-900 dark:text-neutral-100`}
+        className={`${inter.className} min-h-screen bg-white text-neutral-900 dark:bg-black dark:text-neutral-100`}
       >
-        {/* Google AdSense Auto Ads */}
-        <Script
-          id="google-adsense"
-          strategy="afterInteractive"
-          async
-          src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_CLIENT_ID}`}
-          crossOrigin="anonymous"
-        />
+        <ThemeProvider>
+          {/* Google AdSense Auto Ads */}
+          <Script
+            id="google-adsense"
+            strategy="afterInteractive"
+            async
+            src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_CLIENT_ID}`}
+            crossOrigin="anonymous"
+          />
 
-        {children}
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );
