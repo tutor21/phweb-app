@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, {
@@ -14,6 +13,7 @@ import AppShell from '@/app/components/AppShell';
 import PostCard from '@/app/components/PostCard';
 import AdSenseInFeed from '@/app/components/AdSenseInFeed';
 import HomePostComposer from '@/app/components/HomePostComposer';
+import WhatsHappening from '@/app/components/WhatsHappening';
 
 import {
   Compass,
@@ -172,7 +172,8 @@ export default function HomePage() {
 
   return (
     <AppShell>
-      <main className="mx-auto max-w-2xl px-4 py-6 text-neutral-900 dark:text-neutral-100">
+      <div className="mx-auto grid max-w-6xl grid-cols-1 gap-6 px-4 py-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <main className="min-w-0 text-neutral-900 dark:text-neutral-100">
         {/* Homepage Header */}
         <div className="mb-6 flex items-center justify-between gap-3">
           <h1 className="text-2xl font-bold tracking-tight">
@@ -346,7 +347,24 @@ export default function HomePage() {
               ))}
             </div>
           )}
-      </main>
+        </main>
+
+        <aside className="min-w-0">
+          <div className="space-y-5 lg:sticky lg:top-6">
+            <WhatsHappening />
+
+            <section
+              aria-label="Sidebar advertisement"
+              className="overflow-hidden rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
+            >
+              <p className="mb-3 text-center text-xs uppercase tracking-wide text-neutral-400">
+                Advertisement
+              </p>
+              <AdSenseInFeed />
+            </section>
+          </div>
+        </aside>
+      </div>
     </AppShell>
   );
 }
