@@ -27,6 +27,7 @@ import {
 
 import { createClient } from '@/app/utils/supabase/client';
 import AppShell from '@/app/components/AppShell';
+import ThemeSelector from '@/app/components/ThemeSelector';
 
 const MAX_BIO_LENGTH = 160;
 const MAX_AVATAR_SIZE = 5 * 1024 * 1024;
@@ -480,7 +481,7 @@ export default function SettingsPage() {
           </div>
 
           <p className="text-sm text-neutral-500">
-            Manage your phweb.app profile information and avatar.
+            Manage your Socials appearance, profile information, and avatar.
           </p>
         </header>
 
@@ -507,6 +508,11 @@ export default function SettingsPage() {
             <span>{successMessage}</span>
           </div>
         )}
+
+        {/* Theme selection is independent of profile saving. */}
+        <section className="rounded-2xl border border-neutral-200 bg-white p-6 dark:border-neutral-800 dark:bg-black">
+          <ThemeSelector />
+        </section>
 
         <form
           onSubmit={handleSave}
