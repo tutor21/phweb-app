@@ -2,6 +2,7 @@
 import React, {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import Link from 'next/link';
@@ -107,6 +108,53 @@ export default function PostCard({
   const [showComments, setShowComments] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
   const [photoCommentsOpen, setPhotoCommentsOpen] = useState(false);
+  const [photoZoom, setPhotoZoom] = useState(1);
+  const gesture = useRef<{ startY: number; startX: number; startDistance: number; startZoom: number; pinching: boolean } | null>(null);
+  const sheetStartY = useRef<number | null>(null);
+  const touchDistance = (touches: React.TouchList) => {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.hypot(dx, dy);
+  };
+  function onPhotoTouchStart(event: React.TouchEvent<HTMLDivElement>) {
+    if (event.touches.length === 2) {
+      gesture.current = { startY: 0, startX: 0, startDistance: touchDistance(event.touches), startZoom: photoZoom, pinching: true };
+    } else if (event.touches.length === 1) {
+      gesture.current = { startY: event.touches[0].clientY, startX: event.touches[0].clientX, startDistance: 0, startZoom: photoZoom, pinching: false };
+    }
+  }
+  function onPhotoTouchMove(event: React.TouchEvent<HTMLDivElement>) {
+    const g = gesture.current;
+    if (!g) return;
+    if (event.touches.length === 2) {
+      if (!g.pinching) {
+        gesture.current = { ...g, startDistance: touchDistance(event.touches), startZoom: photoZoom, pinching: true };
+        return;
+      }
+      setPhotoZoom(Math.max(1, Math.min(4, g.startZoom * touchDistance(event.touches) / Math.max(g.startDistance, 1))));
+    }
+  }
+  function onPhotoTouchEnd(event: React.TouchEvent<HTMLDivElement>) {
+    const g = gesture.current;
+    if (!g) return;
+    if (event.touches.length > 0) {
+      // Avoid treating the remaining finger of a pinch as a swipe.
+      if (g.pinching) gesture.current = null;
+      return;
+    }
+    gesture.current = null;
+    if (g.pinching || photoZoom > 1.05) return;
+    const dy = event.changedTouches[0].clientY - g.startY;
+    const dx = event.changedTouches[0].clientX - g.startX;
+    if (Math.abs(dy) < 65 || Math.abs(dy) < Math.abs(dx) * 1.3) return;
+    if (dy < 0) setPhotoCommentsOpen(true);
+    else if (photoCommentsOpen) setPhotoCommentsOpen(false);
+  }
+  function closePhoto() {
+    setPhotoOpen(false);
+    setPhotoCommentsOpen(false);
+    setPhotoZoom(1);
+  }
   const [showReportModal, setShowReportModal] = useState(false);
   const [checkingReportAuth, setCheckingReportAuth] = useState(false);
   const [showManageMenu, setShowManageMenu] = useState(false);
@@ -129,8 +177,7 @@ export default function PostCard({
     document.body.style.overflow = 'hidden';
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setPhotoOpen(false);
-        setPhotoCommentsOpen(false);
+        closePhoto();
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -695,7 +742,7 @@ export default function PostCard({
         <button
           type="button"
           aria-label="Expand post photo"
-          onClick={() => { setPhotoOpen(true); setPhotoCommentsOpen(false); }}
+          onClick={() => { setPhotoOpen(true); setPhotoCommentsOpen(false); setPhotoZoom(1); }}
           className="mx-3 mb-1 flex w-[calc(100%-1.5rem)] cursor-zoom-in items-center justify-center overflow-hidden rounded-2xl bg-neutral-100 dark:bg-neutral-900"
         >
           <img
@@ -839,11 +886,24 @@ export default function PostCard({
           className="fixed inset-0 z-[200] flex flex-col bg-black text-white"
         >
           <div className="absolute left-0 right-0 top-0 z-10 flex items-center justify-between px-4 pt-[max(1rem,env(safe-area-inset-top))]">
-            <button type="button" onClick={() => { setPhotoOpen(false); setPhotoCommentsOpen(false); }} aria-label="Close photo viewer" className="rounded-full bg-black/60 p-2"><X className="h-6 w-6" /></button>
+            <button type="button" onClick={closePhoto} aria-label="Close photo viewer" className="rounded-full bg-black/60 p-2"><X className="h-6 w-6" /></button>
             <span className="max-w-[70%] truncate text-sm font-semibold">@{post.profiles?.username || 'user'}</span>
           </div>
-          <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-2 pt-14 transition-all duration-300 ease-out">
-            <img src={post.image} alt={post.caption || 'Post image'} className="max-h-full max-w-full object-contain" />
+          <div
+            className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-2 pt-14 transition-all duration-300 ease-out"
+            style={{ touchAction: 'none' }}
+            onTouchStart={onPhotoTouchStart}
+            onTouchMove={onPhotoTouchMove}
+            onTouchEnd={onPhotoTouchEnd}
+            onDoubleClick={() => setPhotoZoom(value => value > 1 ? 1 : 2)}
+          >
+            <img
+              src={post.image}
+              alt={post.caption || 'Post image'}
+              draggable={false}
+              className="max-h-full max-w-full select-none object-contain transition-transform duration-150"
+              style={{ transform: `scale(${photoZoom})` }}
+            />
           </div>
           <div className="flex shrink-0 items-center gap-5 px-5 py-3 text-white">
             <button type="button" onClick={() => void toggleLike()} disabled={!currentUserId || isTogglingLike} aria-label={isLiked ? 'Unlike post' : 'Like post'} className="flex items-center gap-2 disabled:opacity-50">
@@ -859,7 +919,17 @@ export default function PostCard({
           </div>
           {photoCommentsOpen && (
             <div className="flex h-[min(58dvh,580px)] shrink-0 flex-col overflow-hidden rounded-t-3xl bg-white text-neutral-900 shadow-2xl dark:bg-neutral-950 dark:text-white">
-              <button type="button" onClick={() => setPhotoCommentsOpen(false)} className="flex shrink-0 flex-col items-center gap-2 py-3" aria-label="Collapse comments">
+              <button
+                type="button"
+                onClick={() => setPhotoCommentsOpen(false)}
+                onTouchStart={event => { sheetStartY.current = event.touches[0]?.clientY ?? null; }}
+                onTouchEnd={event => {
+                  if (sheetStartY.current !== null && event.changedTouches[0].clientY - sheetStartY.current > 55) setPhotoCommentsOpen(false);
+                  sheetStartY.current = null;
+                }}
+                className="flex shrink-0 flex-col items-center gap-2 py-3 touch-pan-y"
+                aria-label="Collapse comments"
+              >
                 <span className="h-1 w-10 rounded-full bg-neutral-300 dark:bg-neutral-700" />
                 <span className="text-sm font-semibold">Comments ({comments.length})</span>
               </button>
