@@ -7,10 +7,14 @@ import './globals.css';
 
 const inter = Inter({ subsets: ['latin'] });
 
-const ADSENSE_CLIENT_ID = 'ca-pub-8523183868184574';
+// Updated Google AdSense Publisher ID
+const ADSENSE_CLIENT_ID = 'ca-pub-8497336644414125';
+
+// New primary domain
+const SITE_URL = 'https://phweb.net';
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://socials.primeflix4all.site'),
+  metadataBase: new URL(SITE_URL),
 
   title: {
     default: 'Socials',
@@ -31,11 +35,15 @@ export const metadata: Metadata = {
     'connect with friends',
   ],
 
+  alternates: {
+    canonical: '/',
+  },
+
   openGraph: {
     title: 'Socials',
     description:
       'Share your moments, connect with friends, and discover what is happening on Socials.',
-    url: 'https://socials.primeflix4all.site',
+    url: SITE_URL,
     siteName: 'Socials',
     type: 'website',
   },
@@ -78,7 +86,7 @@ export default function RootLayout({
         className={`${inter.className} min-h-screen bg-white text-neutral-900 dark:bg-black dark:text-neutral-100`}
       >
         <ThemeProvider>
-          {/* Google AdSense Auto Ads */}
+          {/* Google AdSense - New Publisher ID */}
           <Script
             id="google-adsense"
             strategy="afterInteractive"
