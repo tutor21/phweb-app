@@ -2,16 +2,19 @@
 @import "tailwindcss";
 
 /*
- * Socials Theme System
+ * PHWeb Theme & Typography System
  * Light / Dark / Black Forest
- *
  * Tailwind CSS v4
  */
 
-/* Enable class-based dark mode for Tailwind v4 */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Default theme variables */
+/* Connect Next.js Inter font to Tailwind */
+@theme inline {
+  --font-sans: var(--font-inter), Arial, Helvetica, sans-serif;
+}
+
+/* Default theme */
 :root {
   color-scheme: light;
 
@@ -47,29 +50,74 @@ html[data-theme="forest"] {
   --socials-accent: #4ade80;
 }
 
-/* Base styling */
+/* Global typography */
 @layer base {
   html {
     min-height: 100%;
+    font-family: var(--font-inter), Arial, Helvetica, sans-serif;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
   }
 
   body {
     @apply antialiased selection:bg-blue-500 selection:text-white;
 
     min-height: 100vh;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 400;
+    line-height: 1.6;
+    letter-spacing: -0.005em;
+
     background-color: var(--socials-bg);
     color: var(--socials-text);
+
     transition:
       background-color 180ms ease,
       color 180ms ease;
   }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: inherit;
+    font-weight: 700;
+    line-height: 1.25;
+    letter-spacing: -0.025em;
+  }
+
+  p {
+    overflow-wrap: break-word;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  button {
+    font-weight: 500;
+  }
+
+  input,
+  textarea,
+  select {
+    font-size: max(16px, 1em);
+    line-height: 1.5;
+  }
+
+  small {
+    font-size: 0.8125rem;
+  }
+
+  strong,
+  b {
+    font-weight: 600;
+  }
 }
 
-/*
- * Black Forest overrides
- * Applied only when forest mode is active.
- */
-
+/* Black Forest theme */
 html[data-theme="forest"] body {
   background-color: #07130e;
   color: #e5f5ea;
@@ -149,7 +197,7 @@ html[data-theme="forest"] {
   scrollbar-color: #365547 #07130e;
 }
 
-/* Existing Socials scrollbar utilities */
+/* Hide scrollbar utility */
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
@@ -159,7 +207,7 @@ html[data-theme="forest"] {
   scrollbar-width: none;
 }
 
-/* Accessibility: reduce motion */
+/* Accessibility */
 @media (prefers-reduced-motion: reduce) {
   body {
     transition: none;
