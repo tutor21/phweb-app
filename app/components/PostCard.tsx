@@ -5,6 +5,7 @@ import React, {
   useState,
 } from 'react';
 import Link from 'next/link';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import {
   Heart,
@@ -15,6 +16,7 @@ import {
   Pencil,
   Trash2,
   Loader2,
+  X,
 } from 'lucide-react';
 import { createClient } from '@/app/utils/supabase/client';
 import ReportModal from '@/app/components/ReportModal';
@@ -103,6 +105,8 @@ export default function PostCard({
   const [commentError, setCommentError] = useState('');
   const [editedCommentIds, setEditedCommentIds] = useState<string[]>([]);
   const [showComments, setShowComments] = useState(false);
+  const [photoOpen, setPhotoOpen] = useState(false);
+  const [photoCommentsOpen, setPhotoCommentsOpen] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [checkingReportAuth, setCheckingReportAuth] = useState(false);
   const [showManageMenu, setShowManageMenu] = useState(false);
@@ -119,6 +123,23 @@ export default function PostCard({
     authorId === currentUserId
       ? '/profile'
       : `/profile/${authorId}`;
+  useEffect(() => {
+    if (!photoOpen) return;
+    const oldOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setPhotoOpen(false);
+        setPhotoCommentsOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = oldOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [photoOpen]);
+
   // LOAD LIKES, SAVED POSTS, AND COMMENTS
   useEffect(() => {
     let active = true;
@@ -444,6 +465,115 @@ export default function PostCard({
     }
   }
 
+  const interactionsPanel = (
+    <>
+      {/* LIKE COUNT AND COMMENTS */}
+      <div className="space-y-2 px-4 pb-4">
+        <p className="text-sm font-semibold">
+          {likes}{' '}
+          {likes === 1
+            ? 'like'
+            : 'likes'}
+        </p>
+        {comments.length > 0 && (
+          <button
+            type="button"
+            onClick={() =>
+              setShowComments((value) => !value)
+            }
+            className="pt-1 text-xs text-neutral-500 hover:underline"
+          >
+            {(showComments || (photoOpen && photoCommentsOpen))
+              ? 'Hide comments'
+              : `View all ${comments.length} comments`}
+          </button>
+        )}
+        {(showComments || (photoOpen && photoCommentsOpen)) && (
+          <div className="space-y-2 pt-2">
+            {comments.map((comment) => (
+              <div key={comment.id} className="rounded-lg py-1 text-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <span className="font-semibold">@{comment.profiles?.username || 'user'}</span>
+                    {editingCommentId === comment.id ? (
+                      <form
+                        className="mt-2 space-y-2"
+                        onSubmit={(event) => { event.preventDefault(); void saveComment(comment); }}
+                      >
+                        <textarea
+                          value={editCommentText}
+                          onChange={(event) => setEditCommentText(event.target.value)}
+                          maxLength={1000}
+                          rows={2}
+                          aria-label="Edit comment"
+                          disabled={busyCommentId === comment.id}
+                          className="w-full resize-y rounded-lg border border-neutral-300 bg-transparent p-2 text-sm outline-none focus:border-blue-500 dark:border-neutral-700"
+                        />
+                        <div className="flex gap-3">
+                          <button type="submit" disabled={!editCommentText.trim() || !!busyCommentId} className="font-semibold text-blue-600 disabled:opacity-50">Save</button>
+                          <button type="button" disabled={!!busyCommentId} onClick={() => { setEditingCommentId(null); setCommentError(''); }} className="text-neutral-500 disabled:opacity-50">Cancel</button>
+                        </div>
+                      </form>
+                    ) : (
+                      <p className="whitespace-pre-wrap break-words text-neutral-700 dark:text-neutral-300">
+                        <CommentText text={comment.text} />
+                        {editedCommentIds.includes(comment.id) && <span className="ml-1 text-xs text-neutral-400">(edited)</span>}
+                      </p>
+                    )}
+                  </div>
+                  {!!currentUserId && comment.user_id === currentUserId && editingCommentId !== comment.id && (
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button type="button" aria-label="Edit comment" title="Edit comment" disabled={!!busyCommentId} onClick={() => startEditingComment(comment)} className="text-neutral-500 hover:text-blue-600 disabled:opacity-50"><Pencil className="h-4 w-4" /></button>
+                      <button type="button" aria-label="Delete comment" title="Delete comment" disabled={!!busyCommentId} onClick={() => void deleteComment(comment)} className="text-neutral-500 hover:text-red-600 disabled:opacity-50">{busyCommentId === comment.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {commentError && <p role="alert" className="text-sm text-red-600">{commentError}</p>}
+        {/* ADD COMMENT */}
+        <form
+          onSubmit={addComment}
+          className="mt-2 flex items-center gap-3 border-t border-neutral-100 pt-3 dark:border-neutral-900"
+        >
+          <input
+            type="text"
+            placeholder={
+              currentUserId
+                ? 'Add a comment...'
+                : 'Sign in to comment'
+            }
+            value={newComment}
+            onChange={(event) =>
+              setNewComment(event.target.value)
+            }
+            disabled={
+              !currentUserId ||
+              isSubmitting
+            }
+            maxLength={1000}
+            className="min-w-0 flex-1 bg-transparent py-1 text-sm outline-none disabled:opacity-50"
+          />
+          <button
+            type="submit"
+            disabled={
+              !newComment.trim() ||
+              !currentUserId ||
+              isSubmitting
+            }
+            className="text-sm font-semibold text-blue-500 disabled:opacity-40"
+          >
+            {isSubmitting
+              ? 'Posting...'
+              : 'Post'}
+          </button>
+        </form>
+      </div>
+    </>
+  );
+
   return (
     <article
       id={post.id}
@@ -562,14 +692,19 @@ export default function PostCard({
       )}
       {/* POST IMAGE */}
       {!!post.image?.trim() && (
-        <div className="flex w-full items-center justify-center overflow-hidden bg-neutral-100 dark:bg-neutral-900">
+        <button
+          type="button"
+          aria-label="Expand post photo"
+          onClick={() => { setPhotoOpen(true); setPhotoCommentsOpen(false); }}
+          className="mx-3 mb-1 flex w-[calc(100%-1.5rem)] cursor-zoom-in items-center justify-center overflow-hidden rounded-2xl bg-neutral-100 dark:bg-neutral-900"
+        >
           <img
             src={post.image}
             alt={post.caption || 'Post image'}
             className="max-h-[650px] w-full object-contain"
             loading="lazy"
           />
-        </div>
+        </button>
       )}
       {/* LIKE, COMMENT, BOOKMARK BUTTONS */}
       <div className="flex items-center justify-between px-4 py-3">
@@ -631,110 +766,7 @@ export default function PostCard({
           />
         </button>
       </div>
-      {/* LIKE COUNT AND COMMENTS */}
-      <div className="space-y-2 px-4 pb-4">
-        <p className="text-sm font-semibold">
-          {likes}{' '}
-          {likes === 1
-            ? 'like'
-            : 'likes'}
-        </p>
-        {comments.length > 0 && (
-          <button
-            type="button"
-            onClick={() =>
-              setShowComments((value) => !value)
-            }
-            className="pt-1 text-xs text-neutral-500 hover:underline"
-          >
-            {showComments
-              ? 'Hide comments'
-              : `View all ${comments.length} comments`}
-          </button>
-        )}
-        {showComments && (
-          <div className="space-y-2 pt-2">
-            {comments.map((comment) => (
-              <div key={comment.id} className="rounded-lg py-1 text-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <span className="font-semibold">@{comment.profiles?.username || 'user'}</span>
-                    {editingCommentId === comment.id ? (
-                      <form
-                        className="mt-2 space-y-2"
-                        onSubmit={(event) => { event.preventDefault(); void saveComment(comment); }}
-                      >
-                        <textarea
-                          value={editCommentText}
-                          onChange={(event) => setEditCommentText(event.target.value)}
-                          maxLength={1000}
-                          rows={2}
-                          aria-label="Edit comment"
-                          disabled={busyCommentId === comment.id}
-                          className="w-full resize-y rounded-lg border border-neutral-300 bg-transparent p-2 text-sm outline-none focus:border-blue-500 dark:border-neutral-700"
-                        />
-                        <div className="flex gap-3">
-                          <button type="submit" disabled={!editCommentText.trim() || !!busyCommentId} className="font-semibold text-blue-600 disabled:opacity-50">Save</button>
-                          <button type="button" disabled={!!busyCommentId} onClick={() => { setEditingCommentId(null); setCommentError(''); }} className="text-neutral-500 disabled:opacity-50">Cancel</button>
-                        </div>
-                      </form>
-                    ) : (
-                      <p className="whitespace-pre-wrap break-words text-neutral-700 dark:text-neutral-300">
-                        <CommentText text={comment.text} />
-                        {editedCommentIds.includes(comment.id) && <span className="ml-1 text-xs text-neutral-400">(edited)</span>}
-                      </p>
-                    )}
-                  </div>
-                  {!!currentUserId && comment.user_id === currentUserId && editingCommentId !== comment.id && (
-                    <div className="flex shrink-0 items-center gap-2">
-                      <button type="button" aria-label="Edit comment" title="Edit comment" disabled={!!busyCommentId} onClick={() => startEditingComment(comment)} className="text-neutral-500 hover:text-blue-600 disabled:opacity-50"><Pencil className="h-4 w-4" /></button>
-                      <button type="button" aria-label="Delete comment" title="Delete comment" disabled={!!busyCommentId} onClick={() => void deleteComment(comment)} className="text-neutral-500 hover:text-red-600 disabled:opacity-50">{busyCommentId === comment.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}</button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        {commentError && <p role="alert" className="text-sm text-red-600">{commentError}</p>}
-        {/* ADD COMMENT */}
-        <form
-          onSubmit={addComment}
-          className="mt-2 flex items-center gap-3 border-t border-neutral-100 pt-3 dark:border-neutral-900"
-        >
-          <input
-            type="text"
-            placeholder={
-              currentUserId
-                ? 'Add a comment...'
-                : 'Sign in to comment'
-            }
-            value={newComment}
-            onChange={(event) =>
-              setNewComment(event.target.value)
-            }
-            disabled={
-              !currentUserId ||
-              isSubmitting
-            }
-            maxLength={1000}
-            className="min-w-0 flex-1 bg-transparent py-1 text-sm outline-none disabled:opacity-50"
-          />
-          <button
-            type="submit"
-            disabled={
-              !newComment.trim() ||
-              !currentUserId ||
-              isSubmitting
-            }
-            className="text-sm font-semibold text-blue-500 disabled:opacity-40"
-          >
-            {isSubmitting
-              ? 'Posting...'
-              : 'Post'}
-          </button>
-        </form>
-      </div>
+      {!photoOpen && interactionsPanel}
       {/* ACTION ERROR */}
       {actionError && (
         <p
@@ -798,6 +830,46 @@ export default function PostCard({
             </div>
           </div>
         </div>
+      )}
+      {photoOpen && post.image && typeof document !== 'undefined' && createPortal(
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Photo viewer"
+          className="fixed inset-0 z-[200] flex flex-col bg-black text-white"
+        >
+          <div className="absolute left-0 right-0 top-0 z-10 flex items-center justify-between px-4 pt-[max(1rem,env(safe-area-inset-top))]">
+            <button type="button" onClick={() => { setPhotoOpen(false); setPhotoCommentsOpen(false); }} aria-label="Close photo viewer" className="rounded-full bg-black/60 p-2"><X className="h-6 w-6" /></button>
+            <span className="max-w-[70%] truncate text-sm font-semibold">@{post.profiles?.username || 'user'}</span>
+          </div>
+          <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-2 pt-14 transition-all duration-300 ease-out">
+            <img src={post.image} alt={post.caption || 'Post image'} className="max-h-full max-w-full object-contain" />
+          </div>
+          <div className="flex shrink-0 items-center gap-5 px-5 py-3 text-white">
+            <button type="button" onClick={() => void toggleLike()} disabled={!currentUserId || isTogglingLike} aria-label={isLiked ? 'Unlike post' : 'Like post'} className="flex items-center gap-2 disabled:opacity-50">
+              <Heart className={`h-6 w-6 ${isLiked ? 'fill-red-500 text-red-500' : ''}`} />
+              <span className="text-sm">{likes}</span>
+            </button>
+            <button type="button" onClick={() => setPhotoCommentsOpen(value => !value)} aria-expanded={photoCommentsOpen} aria-label="Toggle photo comments" className="flex items-center gap-2">
+              <MessageCircle className="h-6 w-6" /><span className="text-sm">{comments.length}</span>
+            </button>
+            <button type="button" onClick={() => void toggleSave()} disabled={!currentUserId || isTogglingSave} aria-label={isSaved ? 'Remove bookmark' : 'Save post'} className="ml-auto disabled:opacity-50">
+              <Bookmark className={`h-6 w-6 ${isSaved ? 'fill-white' : ''}`} />
+            </button>
+          </div>
+          {photoCommentsOpen && (
+            <div className="flex h-[min(58dvh,580px)] shrink-0 flex-col overflow-hidden rounded-t-3xl bg-white text-neutral-900 shadow-2xl dark:bg-neutral-950 dark:text-white">
+              <button type="button" onClick={() => setPhotoCommentsOpen(false)} className="flex shrink-0 flex-col items-center gap-2 py-3" aria-label="Collapse comments">
+                <span className="h-1 w-10 rounded-full bg-neutral-300 dark:bg-neutral-700" />
+                <span className="text-sm font-semibold">Comments ({comments.length})</span>
+              </button>
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[env(safe-area-inset-bottom)]">
+                {interactionsPanel}
+              </div>
+            </div>
+          )}
+        </div>,
+        document.body
       )}
       {/* REPORT MODAL - AUTHENTICATED USERS ONLY */}
       {showReportModal &&
