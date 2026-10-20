@@ -10,6 +10,7 @@ import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 import {
   Home,
+  Clapperboard,
   Search,
   MessageCircle,
   Heart,
@@ -30,6 +31,7 @@ interface NavigationItem {
   href: string;
   label: string;
   icon: React.ElementType;
+  external?: boolean;
 }
 
 export default function AppShell({ children }: AppShellProps) {
@@ -94,6 +96,7 @@ export default function AppShell({ children }: AppShellProps) {
   const desktopNavItems = useMemo<NavigationItem[]>(() => {
     const items: NavigationItem[] = [
       { href: '/', label: 'Home', icon: Home },
+      { href: 'https://watch.primeflix4all.site', label: 'Movies', icon: Clapperboard, external: true },
       { href: '/search', label: 'Search', icon: Search },
       { href: '/messages', label: 'Messages', icon: MessageCircle },
       { href: '/notifications', label: 'Notifications', icon: Heart },
@@ -123,6 +126,7 @@ export default function AppShell({ children }: AppShellProps) {
     if (user) {
       return [
         { href: '/', label: 'Home', icon: Home },
+      { href: 'https://watch.primeflix4all.site', label: 'Movies', icon: Clapperboard, external: true },
         { href: '/search', label: 'Search', icon: Search },
         { href: '/create', label: 'Create', icon: PlusSquare },
         { href: '/messages', label: 'Messages', icon: MessageCircle },
@@ -132,6 +136,7 @@ export default function AppShell({ children }: AppShellProps) {
 
     return [
       { href: '/', label: 'Home', icon: Home },
+      { href: 'https://watch.primeflix4all.site', label: 'Movies', icon: Clapperboard, external: true },
       { href: '/search', label: 'Search', icon: Search },
       { href: '/login', label: 'Sign In', icon: LogIn },
     ];
@@ -167,6 +172,7 @@ export default function AppShell({ children }: AppShellProps) {
   }, [user, isSuperadmin]);
 
   function isActiveRoute(href: string) {
+    if (href.startsWith('https://')) return false;
     if (href === '/') {
       return pathname === '/';
     }
@@ -202,7 +208,7 @@ export default function AppShell({ children }: AppShellProps) {
           </div>
 
           <span className="text-2xl font-bold tracking-tight">
-            Socials
+            PHWeb
           </span>
         </Link>
 
@@ -217,6 +223,7 @@ export default function AppShell({ children }: AppShellProps) {
             return (
               <Link
                 key={item.href}
+                {...(item.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
                 href={item.href}
                 aria-current={isActive ? 'page' : undefined}
                 className={`
@@ -240,7 +247,7 @@ export default function AppShell({ children }: AppShellProps) {
         </nav>
 
         <div className="border-t border-neutral-200 pt-4 text-center text-xs text-neutral-400 dark:border-neutral-800">
-          Socials
+          PHWeb
         </div>
       </aside>
 
@@ -291,6 +298,7 @@ export default function AppShell({ children }: AppShellProps) {
                 return (
                   <Link
                     key={item.href}
+                {...(item.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
                     href={item.href}
                     onClick={() => setMoreOpen(false)}
                     className={`
@@ -337,6 +345,7 @@ export default function AppShell({ children }: AppShellProps) {
           return (
             <Link
               key={item.href}
+                {...(item.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
               href={item.href}
               aria-label={item.label}
               aria-current={isActive ? 'page' : undefined}
