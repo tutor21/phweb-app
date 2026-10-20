@@ -1,4 +1,4 @@
-
+﻿
 'use client';
 
 import { useEffect, useRef } from 'react';
@@ -43,11 +43,12 @@ export default function AdSenseInFeed() {
         ref={adRef}
         className="adsbygoogle"
         style={{ display: 'block' }}
-        data-ad-client="ca-pub-8523183868184574"
-        data-ad-slot="3751317321"
+        data-ad-client="ca-pub-8497336644414125"
+        data-ad-slot="9090262155"
         data-ad-format="auto"
         data-full-width-responsive="true"
       />
     </div>
   );
 }
+
