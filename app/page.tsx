@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, {
@@ -40,6 +41,7 @@ interface Post {
   user_id: string;
   caption: string | null;
   image: string | null;
+  background_theme: string | null;
   created_at: string;
   profiles: Profile | null;
 }
@@ -135,6 +137,7 @@ export default function HomePage() {
           user_id: post.user_id,
           caption: post.caption ?? null,
           image: post.image ?? null,
+          background_theme: post.background_theme ?? null,
           created_at: post.created_at,
           profiles: post.profiles
             ? {
@@ -173,7 +176,7 @@ export default function HomePage() {
   return (
     <AppShell>
       <div className="mx-auto grid max-w-6xl grid-cols-1 gap-6 px-4 py-6 lg:grid-cols-[minmax(0,1fr)_300px]">
-        <main className="min-w-0 text-neutral-900 dark:text-neutral-100">
+      <main className="min-w-0 text-neutral-900 dark:text-neutral-100">
         {/* Homepage Header */}
         <div className="mb-6 flex items-center justify-between gap-3">
           <h1 className="text-2xl font-bold tracking-tight">
@@ -212,7 +215,7 @@ export default function HomePage() {
               />
 
               <h2 className="text-lg font-bold">
-                Welcome to Socials
+                Welcome to PHWeb
               </h2>
             </div>
 
@@ -347,24 +350,24 @@ export default function HomePage() {
               ))}
             </div>
           )}
-        </main>
+      </main>
 
-        <aside className="min-w-0">
-          <div className="space-y-5 lg:sticky lg:top-6">
-            <WhatsHappening />
+      <aside className="min-w-0">
+        <div className="space-y-5 lg:sticky lg:top-6">
+          <WhatsHappening />
 
-            <section
-              aria-label="Sidebar advertisement"
-              className="overflow-hidden rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
-            >
-              <p className="mb-3 text-center text-xs uppercase tracking-wide text-neutral-400">
-                Advertisement
-              </p>
-              <AdSenseInFeed />
-            </section>
-          </div>
-        </aside>
-      </div>
+          <section
+            aria-label="Sidebar advertisement"
+            className="overflow-hidden rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
+          >
+            <p className="mb-3 text-center text-xs uppercase tracking-wide text-neutral-400">
+              Advertisement
+            </p>
+            <AdSenseInFeed />
+          </section>
+        </div>
+      </aside>
+    </div>
     </AppShell>
   );
 }
