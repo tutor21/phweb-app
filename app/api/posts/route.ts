@@ -5,6 +5,11 @@ import { scanImage } from '@/app/utils/moderation/scan-image';
 
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 const MAX_REQUEST_SIZE = 6 * 1024 * 1024;
+const MAX_IMAGES = 1;
+const BACKGROUND_THEMES = new Set([
+  'classic', 'ocean', 'sunset', 'purple',
+  'forest', 'midnight', 'rose',
+]);
 const MAX_CAPTION_LENGTH = 500;
 const READ_TIMEOUT_MS = 15000;
 
@@ -47,7 +52,8 @@ class RequestTimeoutError extends Error {}
  * Read an upload while enforcing a strict application-level
  * request size limit and a total read timeout.
  *
- * NGINX should independently enforce the upstream 6 MB limit.
+ * The reverse proxy must allow at least 6 MB for this endpoint.
+ * If its limit is smaller, requests will be rejected before reaching this code.
  */
 async function readLimitedBody(
   request: NextRequest
@@ -357,7 +363,8 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  let uploadedPath: string | null = null;
+  const uploadedPaths: string[] = [];
+  let insertedPostId: string | null = null;
 
   try {
     /**
@@ -408,134 +415,81 @@ export async function POST(request: NextRequest) {
     }
 
     /**
+     * BACKGROUND THEME VALIDATION
+     * Only text-only posts can have a theme.
+     */
+    const themeValue = formData.get('background_theme');
+    if (themeValue !== null && typeof themeValue !== 'string') {
+      return errorResponse('Invalid background theme.', 400);
+    }
+    const backgroundTheme = typeof themeValue === 'string' && themeValue.trim()
+      ? themeValue.trim()
+      : null;
+    if (backgroundTheme && !BACKGROUND_THEMES.has(backgroundTheme)) {
+      return errorResponse('Unsupported background theme.', 400);
+    }
+
+    /**
      * IMAGE VALIDATION
      */
-    const imageValue = formData.get('image');
-
-    if (
-      imageValue !== null &&
-      !(imageValue instanceof File)
-    ) {
-      return errorResponse(
-        'Invalid image attachment.',
-        400
-      );
+    const attachments = formData.getAll('images');
+    const legacyImage = formData.get('image');
+    if (legacyImage !== null) attachments.push(legacyImage);
+    if (attachments.length > MAX_IMAGES) {
+      return errorResponse('Only one photo is allowed per post.', 400);
+    }
+    if (attachments.some(item => !(item instanceof File))) {
+      return errorResponse('Invalid photo attachment.', 400);
+    }
+    const imageFiles = attachments as File[];
+    if (backgroundTheme && imageFiles.length) {
+      return errorResponse('Background themes are only available for text-only posts.', 400);
+    }
+    if (backgroundTheme && !caption) {
+      return errorResponse('Add text to use a background theme.', 400);
+    }
+    if (!caption && imageFiles.length === 0) {
+      return errorResponse('Please write something or add a photo.', 400);
+    }
+    if (imageFiles.length && !process.env.OPENAI_API_KEY) {
+      return errorResponse('Image moderation is not configured.', 503);
     }
 
-    const imageFile =
-      imageValue instanceof File
-        ? imageValue
-        : null;
-
-    if (!caption && !imageFile) {
-      return errorResponse(
-        'Please write something or add a photo.',
-        400
-      );
-    }
-
-    let imageUrl: string | null = null;
-
-    if (imageFile) {
-      // Require AI moderation to be configured.
-      if (!process.env.OPENAI_API_KEY) {
-        return errorResponse(
-          'Image moderation is not configured.',
-          503
-        );
+    // Validate and moderate EVERY photo before uploading ANY photo.
+    const approvedImages: { buffer: Buffer; type: string; extension: string }[] = [];
+    for (const [index, imageFile] of imageFiles.entries()) {
+      const extension = IMAGE_TYPES[imageFile.type];
+      if (!extension) return errorResponse(`Photo ${index + 1}: only JPEG, PNG and WebP are supported.`, 400);
+      if (imageFile.size === 0 || imageFile.size > MAX_IMAGE_SIZE) {
+        return errorResponse(`Photo ${index + 1}: maximum size is 5 MB.`, 400);
       }
-
-      const extension =
-        IMAGE_TYPES[imageFile.type];
-
-      if (!extension) {
-        return errorResponse(
-          'Only JPEG, PNG and WebP images are supported.',
-          400
-        );
+      const imageBuffer = Buffer.from(await imageFile.arrayBuffer());
+      if (!isValidImageSignature(imageBuffer, imageFile.type)) {
+        return errorResponse(`Photo ${index + 1} is invalid.`, 400);
       }
-
-      if (
-        imageFile.size === 0 ||
-        imageFile.size > MAX_IMAGE_SIZE
-      ) {
-        return errorResponse(
-          'Image must be smaller than 5 MB.',
-          400
-        );
-      }
-
-      const imageBuffer = Buffer.from(
-        await imageFile.arrayBuffer()
-      );
-
-      // Reject files with mismatched image signatures.
-      if (
-        !isValidImageSignature(
-          imageBuffer,
-          imageFile.type
-        )
-      ) {
-        return errorResponse(
-          'The selected image is invalid.',
-          400
-        );
-      }
-
-      /**
-       * AI IMAGE MODERATION
-       *
-       * Scan before uploading to Supabase Storage.
-       */
-      const moderationResult = await scanImage(
-        imageBuffer,
-        imageFile.type
-      );
-
+      const moderationResult = await scanImage(imageBuffer, imageFile.type);
       if (moderationResult.status === 'rejected') {
-        return errorResponse(
-          moderationResult.message,
-          422
-        );
+        return errorResponse(`Photo ${index + 1}: ${moderationResult.message}`, 422);
       }
-
       if (moderationResult.status === 'review') {
-        return errorResponse(
-          'This image requires additional review before publication.',
-          422
-        );
+        return errorResponse(`Photo ${index + 1} requires additional review.`, 422);
       }
-
       if (moderationResult.status !== 'approved') {
-        return errorResponse(
-          'Image verification could not be completed.',
-          503
-        );
+        return errorResponse(`Photo ${index + 1} could not be verified.`, 503);
       }
+      approvedImages.push({ buffer: imageBuffer, type: imageFile.type, extension });
+    }
 
-      /**
-       * UPLOAD APPROVED IMAGE
-       */
-      uploadedPath =
-        `posts/${user.id}-${crypto.randomUUID()}.${extension}`;
-
-      const { error: uploadError } =
-        await admin.storage
-          .from('posts')
-          .upload(uploadedPath, imageBuffer, {
-            contentType: imageFile.type,
-            upsert: false,
-          });
-
-      if (uploadError) {
-        throw uploadError;
-      }
-
-      const { data } = admin.storage
+    const imageUrls: string[] = [];
+    for (const approved of approvedImages) {
+      const path = `posts/${user.id}-${crypto.randomUUID()}.${approved.extension}`;
+      const { error: uploadError } = await admin.storage
         .from('posts')
-        .getPublicUrl(uploadedPath);
-
-      imageUrl = data.publicUrl;
+        .upload(path, approved.buffer, { contentType: approved.type, upsert: false });
+      if (uploadError) throw uploadError;
+      uploadedPaths.push(path);
+      const { data } = admin.storage.from('posts').getPublicUrl(path);
+      imageUrls.push(data.publicUrl);
     }
 
     /**
@@ -551,13 +505,22 @@ export async function POST(request: NextRequest) {
       .insert({
         user_id: user.id,
         caption,
-        image: imageUrl,
+        image: imageUrls[0] ?? null,
+        background_theme: backgroundTheme,
       })
       .select('id')
       .single();
 
     if (insertError) {
       throw insertError;
+    }
+
+    insertedPostId = post.id;
+    if (imageUrls.length) {
+      const { error: galleryError } = await admin.from('post_images').insert(
+        imageUrls.map((url, position) => ({ post_id: post.id, url, position }))
+      );
+      if (galleryError) throw galleryError;
     }
 
     return NextResponse.json(
@@ -576,18 +539,14 @@ export async function POST(request: NextRequest) {
      *
      * Remove any uploaded image if publishing fails.
      */
-    if (uploadedPath) {
-      const { error: cleanupError } =
-        await admin.storage
-          .from('posts')
-          .remove([uploadedPath]);
-
-      if (cleanupError) {
-        console.error(
-          'Unable to clean up uploaded image:',
-          cleanupError.message
-        );
-      }
+    // Remove the post first if gallery metadata could not be saved.
+    if (insertedPostId) {
+      const { error: rollbackError } = await admin.from('posts').delete().eq('id', insertedPostId);
+      if (rollbackError) console.error('Unable to roll back post:', rollbackError.message);
+    }
+    if (uploadedPaths.length) {
+      const { error: cleanupError } = await admin.storage.from('posts').remove(uploadedPaths);
+      if (cleanupError) console.error('Unable to clean up uploaded photos:', cleanupError.message);
     }
 
     if (error instanceof RequestTooLargeError) {
@@ -605,7 +564,7 @@ export async function POST(request: NextRequest) {
     }
 
     console.error(
-      'Socials publishing failed:',
+      'PHWeb publishing failed:',
       error
     );
 
