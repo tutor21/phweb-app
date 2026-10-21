@@ -16,11 +16,27 @@ import { createClient } from '@/app/utils/supabase/client';
 
 const MAX_LENGTH = 500;
 
+const THEMES = [
+  { id: 'classic', label: 'Classic', style: 'bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-white' },
+  { id: 'ocean', label: 'Ocean', style: 'bg-gradient-to-br from-blue-700 to-cyan-400 text-white' },
+  { id: 'sunset', label: 'Sunset', style: 'bg-gradient-to-br from-rose-500 to-amber-400 text-white' },
+  { id: 'purple', label: 'Purple', style: 'bg-gradient-to-br from-violet-800 to-fuchsia-500 text-white' },
+  { id: 'forest', label: 'Forest', style: 'bg-gradient-to-br from-emerald-900 to-green-500 text-white' },
+  { id: 'midnight', label: 'Midnight', style: 'bg-gradient-to-br from-slate-950 to-indigo-700 text-white' },
+  { id: 'rose', label: 'Rose', style: 'bg-gradient-to-br from-pink-600 to-rose-300 text-white' },
+] as const;
+
+type ThemeId = (typeof THEMES)[number]['id'];
+function isThemeId(value: string | null): value is ThemeId {
+  return THEMES.some((theme) => theme.id === value);
+}
+
 interface Post {
   id: string;
   user_id: string;
   caption: string | null;
   image: string | null;
+  background_theme: string | null;
 }
 
 interface EditPostClientProps {
@@ -35,6 +51,7 @@ export default function EditPostClient({
   const supabase = useMemo(() => createClient(), []);
 
   const [caption, setCaption] = useState('');
+  const [backgroundTheme, setBackgroundTheme] = useState<ThemeId | null>(null);
   const [existingImage, setExistingImage] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
 
@@ -64,7 +81,7 @@ export default function EditPostClient({
 
         const { data, error: fetchError } = await supabase
           .from('posts')
-          .select('id, user_id, caption, image')
+          .select('id, user_id, caption, image, background_theme')
           .eq('id', postId)
           .single();
 
@@ -89,6 +106,7 @@ export default function EditPostClient({
         setUserId(user.id);
         setCaption(post.caption ?? '');
         setExistingImage(post.image ?? null);
+        setBackgroundTheme(!post.image && isThemeId(post.background_theme) ? post.background_theme : null);
       } catch (err) {
         if (!active) return;
 
@@ -116,7 +134,7 @@ export default function EditPostClient({
     };
   }, [postId, router, supabase]);
 
-  // Save caption only.
+  // Save caption and, for text-only posts, the selected background theme.
   async function savePost(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -157,18 +175,18 @@ export default function EditPostClient({
       /*
        * SECURITY:
        *
-       * Only update the caption column.
-       *
-       * Never include "image" here because:
-       * 1. Supabase now grants UPDATE(caption) only.
-       * 2. Image changes must pass through server-side
-       *    OpenAI moderation before publication.
+       * Update only caption and background_theme.
+       * Never include "image" here: image changes must pass
+       * through server-side moderation before publication.
+       * Database permissions must allow UPDATE on both
+       * caption and background_theme, with an owner-only policy.
        */
 
       const { data, error: updateError } = await supabase
         .from('posts')
         .update({
           caption: text,
+          background_theme: existingImage || !text ? null : backgroundTheme,
         })
         .eq('id', postId)
         .eq('user_id', user.id)
@@ -218,7 +236,7 @@ export default function EditPostClient({
             </h1>
 
             <p className="text-sm text-neutral-500">
-              Update your post caption securely.
+              Update your post text and background securely.
             </p>
           </div>
         </div>
@@ -298,6 +316,42 @@ export default function EditPostClient({
                 {caption.length} / {MAX_LENGTH}
               </p>
             </div>
+
+            {!existingImage && (
+              <div className="space-y-3">
+                <p className="text-sm font-semibold">Post background</p>
+                <div className="flex flex-wrap gap-3" role="group" aria-label="Choose post background">
+                  <button
+                    type="button"
+                    onClick={() => setBackgroundTheme(null)}
+                    disabled={saving}
+                    aria-pressed={backgroundTheme === null}
+                    className={`rounded-xl border px-3 py-2 text-sm font-medium ${backgroundTheme === null ? 'border-blue-600 ring-2 ring-blue-500' : 'border-neutral-300 dark:border-neutral-700'}`}
+                  >
+                    None
+                  </button>
+                  {THEMES.map((theme) => (
+                    <button
+                      key={theme.id}
+                      type="button"
+                      disabled={saving}
+                      onClick={() => setBackgroundTheme(theme.id)}
+                      aria-pressed={backgroundTheme === theme.id}
+                      title={theme.label}
+                      className={`min-w-[85px] rounded-xl border px-3 py-2 text-sm font-semibold ${theme.style} ${backgroundTheme === theme.id ? 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-black' : 'border-transparent'}`}
+                    >
+                      {theme.label}
+                    </button>
+                  ))}
+                </div>
+                <div className={`flex min-h-[210px] items-center justify-center rounded-2xl px-6 py-8 text-center ${THEMES.find((theme) => theme.id === backgroundTheme)?.style ?? 'bg-neutral-50 text-neutral-900 dark:bg-neutral-900 dark:text-white'}`}>
+                  <p className="whitespace-pre-wrap break-words text-xl font-bold leading-relaxed sm:text-2xl">
+                    {caption.trim() || 'Your post preview'}
+                  </p>
+                </div>
+                <p className="text-xs text-neutral-500">Choose a theme and select Save Changes to apply it to your post.</p>
+              </div>
+            )}
 
             {existingImage && (
               <div className="space-y-3">
